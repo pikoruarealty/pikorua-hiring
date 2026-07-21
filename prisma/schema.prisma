@@ -1,0 +1,393 @@
+// Contest / Assessment Platform — Prisma schema
+// Data model per the approved plan (context-role-playful-fountain.md).
+// All timestamps are stored as timestamptz (UTC); IST is a display/input concern only.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+enum UserRole {
+  ADMIN
+  PARTICIPANT
+}
+
+enum QuestionType {
+  MCQ
+  TEXT
+  CODING
+}
+
+enum ContestVisibility {
+  INVITE_ONLY
+  OPEN
+}
+
+enum ContestStatus {
+  DRAFT
+  SCHEDULED
+  LIVE
+  ENDED
+  ARCHIVED
+}
+
+enum ParticipantStatus {
+  INVITED
+  REGISTERED
+  IN_PROGRESS
+  SUBMITTED
+  AUTO_SUBMITTED
+  LOCKED_OUT
+}
+
+enum QuestionDifficulty {
+  EASY
+  MEDIUM
+  HARD
+}
+
+enum AttemptType {
+  RUN
+  SUBMIT
+}
+
+enum AttemptStatus {
+  PENDING
+  QUEUED
+  RUNNING
+  PASSED
+  FAILED
+  PARTIAL
+  ERROR
+  TIME_LIMIT_EXCEEDED
+  RATE_LIMITED
+  LOCKED
+}
+
+enum ProctoringEventType {
+  FULLSCREEN_EXIT
+  TAB_BLUR
+  VISIBILITY_HIDDEN
+  DEVTOOLS_ATTEMPT
+  RIGHT_CLICK
+  COPY_PASTE
+  PRINT_ATTEMPT
+  MULTI_MONITOR_DETECTED
+  FOCUS_RETURN
+}
+
+// What the server did in response to a proctoring event, given the cumulative count.
+enum ProctoringAction {
+  NONE
+  WARNED
+  AUTO_SUBMITTED
+}
+
+// ---------------------------------------------------------------------------
+// Auth
+// ---------------------------------------------------------------------------
+
+model User {
+  id           String   @id @default(cuid())
+  // email is optional metadata (bulk-imported candidates may lack a verified email);
+  // login is by username, not email.
+  email        String?  @unique
+  username     String   @unique
+  passwordHash String
+  role         UserRole @default(PARTICIPANT)
+  fullName     String?
+  phone        String?
+  isActive     Boolean  @default(true)
+
+  // Single-active-session enforcement for PARTICIPANT: a new login increments this,
+  // instantly invalidating older sessions (their snapshot no longer matches).
+  // ADMIN sessions ignore this check and may be concurrent.
+  sessionVersion Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  sessions             Session[]
+  contestParticipants  ContestParticipant[]
+  createdContests      Contest[]            @relation("ContestCreatedBy")
+  createdQuestions     Question[]           @relation("QuestionCreatedBy")
+  auditLogs            AuditLog[]           @relation("AuditActor")
+
+  @@index([role])
+}
+
+model Session {
+  id             String    @id @default(cuid())
+  userId         String
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // Store a hash of the opaque token, never the raw token.
+  tokenHash      String    @unique
+  // Snapshot of User.sessionVersion at issuance; compared on each request.
+  sessionVersion Int
+  ip             String?
+  userAgent      String?
+  createdAt      DateTime  @default(now())
+  expiresAt      DateTime
+  revokedAt      DateTime?
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+// ---------------------------------------------------------------------------
+// Contests
+// ---------------------------------------------------------------------------
+
+model Contest {
+  id                          String            @id @default(cuid())
+  title                       String
+  description                 String?
+  instructions                String?
+  visibility                  ContestVisibility @default(INVITE_ONLY)
+  status                      ContestStatus     @default(DRAFT)
+  // Stored UTC; interpreted/displayed in IST. Instant comparisons are tz-agnostic.
+  startAt                     DateTime
+  endAt                       DateTime
+  durationMinutes             Int
+  resultsVisibleToParticipants Boolean          @default(false)
+
+  createdById String
+  createdBy   User   @relation("ContestCreatedBy", fields: [createdById], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  participants     ContestParticipant[]
+  contestQuestions ContestQuestion[]
+
+  @@index([status, startAt])
+  @@index([visibility])
+}
+
+model ContestParticipant {
+  id       String            @id @default(cuid())
+  contestId String
+  contest  Contest           @relation(fields: [contestId], references: [id], onDelete: Cascade)
+  userId   String
+  user     User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status   ParticipantStatus @default(INVITED)
+
+  invitedAt          DateTime  @default(now())
+  registeredAt       DateTime?
+  // Server clock — authoritative for per-participant countdown.
+  contestStartedAt   DateTime?
+  contestSubmittedAt DateTime?
+  autoSubmittedReason String?
+
+  // Denormalized leaderboard aggregates, recomputed synchronously on grading.
+  totalScore            Decimal @default(0) @db.Decimal(10, 2)
+  // Tie-break input: total code execution time (ms) across coding submits (faster wins).
+  tieBreakExecutionTimeMs Int?
+
+  attempts         Attempt[]
+  proctoringEvents ProctoringEvent[]
+
+  @@unique([contestId, userId])
+  @@index([contestId, totalScore(sort: Desc)])
+  @@index([contestId, status])
+}
+
+// ---------------------------------------------------------------------------
+// Question bank (reusable, standalone)
+// ---------------------------------------------------------------------------
+
+model Question {
+  id           String              @id @default(cuid())
+  type         QuestionType
+  title        String
+  body         String              // prompt (markdown)
+  defaultPoints Decimal            @default(0) @db.Decimal(10, 2)
+  difficulty   QuestionDifficulty?
+  tags         String[]            @default([])
+  // Soft delete: hard delete would orphan historical Attempt rows.
+  isArchived   Boolean             @default(false)
+
+  createdById String
+  createdBy   User   @relation("QuestionCreatedBy", fields: [createdById], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  options          Option[]
+  textAnswerConfig TextAnswerConfig?
+  codingConfig     CodingQuestionConfig?
+  contestQuestions ContestQuestion[]
+
+  @@index([type])
+  @@index([isArchived])
+}
+
+model Option {
+  id         String   @id @default(cuid())
+  questionId String
+  question   Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  text       String
+  // Signed per-option score. MCQ scoring = sum of selected option scores, floored at 0.
+  score      Decimal  @default(0) @db.Decimal(10, 2)
+  order      Int      @default(0)
+  // Authoring-UI convenience only; scoring uses `score`, not this flag.
+  isCorrect  Boolean  @default(false)
+
+  @@index([questionId, order])
+}
+
+model TextAnswerConfig {
+  id            String   @id @default(cuid())
+  questionId    String   @unique
+  question      Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  // Single correct string; matching is case-insensitive + trimmed in the scoring service.
+  correctAnswer String
+}
+
+model CodingQuestionConfig {
+  id         String   @id @default(cuid())
+  questionId String   @unique
+  question   Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  // Piston per-test-case execution timeout (1–15s). Enforced by zod + DB check.
+  timeLimitSeconds Int
+  // Piston per-test-case memory cap (16–512 MB).
+  memoryLimitMb    Int
+  // Piston language identifiers, e.g. ["python", "c", "cpp", "java"].
+  allowedLanguages String[] @default([])
+  // Per-language starter/boilerplate: { "python": "...", "cpp": "..." }.
+  starterCode      Json?
+  // Contest-facing per-question hard-lock default (seconds). Distinct from
+  // timeLimitSeconds. Nullable = no per-question lock unless overridden per contest.
+  defaultHardLockSeconds Int?
+  // Admin-only reference solution; never sent to the client.
+  solutionCode     Json?
+
+  testCases TestCase[]
+}
+
+model TestCase {
+  id             String               @id @default(cuid())
+  codingConfigId String
+  codingConfig   CodingQuestionConfig @relation(fields: [codingConfigId], references: [id], onDelete: Cascade)
+  input          String
+  expectedOutput String
+  // Sample cases are shown to the participant (used by Run); hidden cases grade Submit.
+  isSample       Boolean              @default(false)
+  score          Decimal              @default(0) @db.Decimal(10, 2)
+  order          Int                  @default(0)
+
+  @@index([codingConfigId, order])
+}
+
+// Join table — the reuse mechanism. A bank Question attached to a Contest.
+model ContestQuestion {
+  id         String   @id @default(cuid())
+  contestId  String
+  contest    Contest  @relation(fields: [contestId], references: [id], onDelete: Cascade)
+  questionId String
+  question   Question @relation(fields: [questionId], references: [id])
+  order      Int      @default(0)
+  // If null, use Question.defaultPoints.
+  pointsOverride Decimal? @db.Decimal(10, 2)
+  // If null (CODING), fall back to CodingQuestionConfig.defaultHardLockSeconds.
+  hardLockSecondsOverride Int?
+  sectionLabel String?
+
+  createdAt DateTime @default(now())
+
+  attempts Attempt[]
+
+  @@unique([contestId, questionId])
+  @@index([contestId, order])
+}
+
+// ---------------------------------------------------------------------------
+// Attempts (unified Run/Submit + MCQ/TEXT answers)
+// ---------------------------------------------------------------------------
+
+model Attempt {
+  id                   String        @id @default(cuid())
+  contestParticipantId String
+  contestParticipant   ContestParticipant @relation(fields: [contestParticipantId], references: [id], onDelete: Cascade)
+  contestQuestionId    String
+  contestQuestion      ContestQuestion    @relation(fields: [contestQuestionId], references: [id], onDelete: Cascade)
+  attemptType          AttemptType
+  status               AttemptStatus @default(PENDING)
+
+  // Coding fields
+  language        String?
+  code            String?
+  // Array of { testCaseId, passed, actualOutput(truncated), executionTimeMs, memoryKb, isSample }.
+  // Hidden-case actualOutput is redacted before being sent to a participant.
+  testCaseResults Json?
+  totalExecutionTimeMs Int?
+
+  // MCQ / TEXT fields
+  selectedOptionIds String[] @default([])
+  textAnswer        String?
+
+  score           Decimal? @db.Decimal(10, 2)
+  // Snapshot of points-at-attempt so later question edits don't rescore history.
+  maxPossibleScore Decimal? @db.Decimal(10, 2)
+
+  // Server clock — the tie-break field (earlier submission wins first).
+  submittedAt DateTime?
+  bullJobId   String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Enforces "only latest Run and latest Submit persisted" via upsert-on-conflict.
+  @@unique([contestParticipantId, contestQuestionId, attemptType])
+  @@index([contestQuestionId, attemptType, status])
+  @@index([submittedAt])
+}
+
+// ---------------------------------------------------------------------------
+// Proctoring & audit
+// ---------------------------------------------------------------------------
+
+model ProctoringEvent {
+  id                   String              @id @default(cuid())
+  contestParticipantId String
+  contestParticipant   ContestParticipant  @relation(fields: [contestParticipantId], references: [id], onDelete: Cascade)
+  eventType            ProctoringEventType
+  // Server clock — written the instant the event is ingested (not batched).
+  occurredAt           DateTime            @default(now())
+  // Untrusted client timestamp, kept only for skew diagnostics.
+  clientTimestamp      DateTime?
+  ip                   String?
+  userAgent            String?
+  metadata             Json?
+  // Running violation count for this participant at the moment of this event.
+  cumulativeCountAtEvent Int
+  actionTaken          ProctoringAction    @default(NONE)
+
+  @@index([contestParticipantId, occurredAt])
+}
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  actorUserId String
+  actor       User     @relation("AuditActor", fields: [actorUserId], references: [id])
+  action      String   // e.g. CREATE_CONTEST, BULK_IMPORT, EXPORT_CREDENTIALS
+  targetType  String
+  targetId    String?
+  // Before/after summary of the change.
+  diff        Json?
+  ip          String?
+  userAgent   String?
+  createdAt   DateTime @default(now())
+
+  @@index([actorUserId, createdAt])
+  @@index([targetType, targetId])
+}

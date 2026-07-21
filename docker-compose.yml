@@ -1,0 +1,111 @@
+# Contest / Assessment Platform — local dev stack.
+#
+# Two usage modes:
+#   1. Infra-only (recommended during active dev):
+#        docker compose up -d postgres redis piston
+#      then run the app on the host:  bun run dev   /   bun run worker
+#   2. Full stack (web + worker containerized):
+#        docker compose --profile app up --build
+#
+# The `web` and `worker` services are gated behind the `app` profile so that
+# `docker compose up` by default only starts infra and doesn't require building
+# the Next.js image every time.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: contest
+      POSTGRES_PASSWORD: contest
+      POSTGRES_DB: contest
+    # Host 5432 is often taken by a native postgres; use 5544 on the host side.
+    ports:
+      - "5544:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U contest -d contest"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Self-hosted Piston execution engine.
+  # NOTE: Piston needs privileged mode for its internal sandboxing (nsjail/isolate).
+  # Language runtimes are installed on first boot via the piston CLI against the API
+  # (see `bun run piston:install` / scripts/piston-install.sh). Piston sits on the
+  # default compose network only; in production it must not be exposed publicly and
+  # sandboxes must have no outbound network access.
+  piston:
+    image: ghcr.io/engineer-man/piston:latest
+    restart: unless-stopped
+    privileged: true
+    ports:
+      - "2000:2000"
+    volumes:
+      - pistondata:/piston
+    tmpfs:
+      - /tmp:exec
+
+  # --- Application (profile: app) ---
+  web:
+    profiles: ["app"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: web
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      # Override host-based URLs with in-network service names.
+      DATABASE_URL: "postgresql://contest:contest@postgres:5432/contest?schema=public"
+      REDIS_URL: "redis://redis:6379"
+      PISTON_API_URL: "http://piston:2000"
+    ports:
+      - "3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # Separate process/container from web: a misbehaving execution job cannot reach
+  # the web app's filesystem or environment.
+  worker:
+    profiles: ["app"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: worker
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: "postgresql://contest:contest@postgres:5432/contest?schema=public"
+      REDIS_URL: "redis://redis:6379"
+      PISTON_API_URL: "http://piston:2000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      piston:
+        condition: service_started
+
+volumes:
+  pgdata:
+  redisdata:
+  pistondata:
