@@ -81,17 +81,78 @@ rationale lives in the approved plan; this is the "don't trip over these" list.
 - admin / `Admin@12345` · alice / `Alice@12345` · bob / `Bobby@12345`
 - Re-running `bun run db:seed` resets these passwords (idempotent upsert).
 
-## Known issue: `bun run build` fails on `/_global-error` (pre-existing, not Phase 2)
-- Since the theme-provider commit (`8ea1f87`/`e24899b`, before Phase 2 started),
-  `next build` fails prerendering the auto-generated `/_global-error` page:
-  `TypeError: null is not an object (evaluating 'k.H.useContext')`. Reproduced on
-  a clean stash of Phase 2's changes, so it's unrelated to the contest/question
-  work — almost certainly `next-themes`' `ThemeProvider` (in `src/app/layout.tsx`)
-  losing context during Next 16 + React 19's static prerender of the global error
-  boundary. `bunx tsc --noEmit` and `bun run dev` both work fine; Phase 2 was
-  verified via the dev server + scripted curl E2E, not `bun run build`. Needs a
-  fix (e.g. a plain `global-error.tsx` that doesn't depend on the provider tree,
-  or pinning/patching next-themes) before this is prod-buildable again.
+## RESOLVED: `bun run build` / Docker build failing on `/_global-error` (was blocking the deploy pipeline)
+- **Root cause, confirmed by direct investigation, not guesswork**: this is a
+  genuine bug in Next.js itself (reproduced identically on 16.2.10, 16.2.11,
+  and 16.3.0-preview.7; with a bare-minimum `layout.tsx` + no custom
+  `global-error.tsx`; with a custom one; with `output: "standalone"`) — **not**
+  `next-themes`/`ThemeProvider` as originally suspected in Phase 2 (a
+  from-scratch minimal layout crashed identically). `next build`'s
+  `isPageStatic()` (`node_modules/next/dist/build/utils.js`) unconditionally
+  returns `isStatic: true` for the synthetic `/_global-error` route — that
+  field isn't even the thing gating the crash, though; the real gate is in
+  `node_modules/next/dist/build/index.js`, where any app route with no
+  dynamic params gets unconditionally added to `staticPaths` (queued for the
+  static-render worker) regardless of the `dynamic` export. `/_global-error`
+  can never opt out via `export const dynamic = "force-dynamic"` because Next
+  hardcodes it into that unconditional branch — the static-render worker
+  itself then crashes rendering it: `TypeError: null is not an object
+  (evaluating 'k.H.useContext')` (React's dispatcher, `H`, is null — the hook
+  call happens outside a real render pass).
+- **Two-part fix**:
+  1. `src/app/layout.tsx` now exports `export const dynamic = "force-dynamic"`
+     — correct anyway, since this whole app is an authenticated dashboard with
+     zero static/marketing pages and no page reads `cookies()`/`headers()`
+     server-side to give Next an automatic dynamic signal. This alone fixed
+     all 11 real routes (they'd been silently hitting the *same* crash before
+     this — `/admin/questions` failed identically to `/_global-error` until
+     this was added).
+  2. `/_global-error` itself still can't be forced dynamic from userland, so
+     it's patched directly via `bun patch` — see `patches/next@16.2.11.patch`.
+     The patch adds one guard in `build/index.js`: if
+     `originalAppPath === "/_global-error/page"`, skip the unconditional
+     static-marking branch entirely, leaving it dynamic. `bun install`
+     reapplies this patch automatically (verified with a clean
+     `rm -rf node_modules && bun install --frozen-lockfile`) as long as
+     `patches/` ships alongside `package.json`/`bun.lock` — the `Dockerfile`
+     now `COPY patches ./patches` *before* `bun install` in the `base` stage
+     for exactly this reason. **If `next` gets upgraded, re-verify this patch
+     still applies/is still needed** (`bun patch next`, re-diff against the
+     new `build/index.js`, `bun patch --commit`) — a future Next release may
+     fix this upstream, at which point the patch (and this note) can be
+     deleted.
+  3. `src/app/global-error.tsx` was added as an explicit (not auto-generated)
+     implementation — this Next fork renamed the boundary's reset callback
+     from `reset` to `unstable_retry` (see `AGENTS.md`'s warning about
+     breaking API changes in this fork); it isn't the cause of the crash
+     (reproduced with it present, absent, and minimal either way) but is
+     still the semantically correct thing to have.
+- **Also found + fixed while verifying the Docker build end-to-end** (`docker
+  build --target web` + `docker compose --profile app up` smoke test against
+  real infra, not just `next build`):
+  - The `build` stage had no env at all, and `src/lib/env.ts`'s zod parse runs
+    at module-eval time for every route Next collects page data for —
+    `Dockerfile` now sets build-only placeholder env vars (`DATABASE_URL`,
+    `REDIS_URL`, `PISTON_API_URL`, `APP_SECRET`) right before `RUN bun run
+    build`; real values still only ever come from `env_file: .env` at
+    container runtime, these are never read outside the build.
+  - `docker-compose.yml`'s `web`/`worker` services now also force `NODE_ENV:
+    "production"` in `environment:` (same pattern as the existing
+    `DATABASE_URL`/`REDIS_URL`/`PISTON_API_URL` overrides) — without it,
+    `.env`'s `NODE_ENV="development"` (correct for `bun run dev` on the host)
+    silently overrode the image's baked-in `ENV NODE_ENV=production`, since
+    `env_file`/`environment` always wins over an image's own `ENV`. Caught via
+    the "non-standard NODE_ENV" warning in container logs, not a build
+    failure — easy to miss.
+  - Raw `docker run --env-file .env` (NOT `docker compose`) does **not** strip
+    quotes from `.env` values the way Bun's dotenv loader or Compose's
+    `env_file` parser do — `NODE_ENV="development"` becomes the literal
+    8-character string `"development"` (quotes included), failing zod's enum
+    check, and `SESSION_TTL_SECONDS="43200"` becomes `NaN` under
+    `z.coerce.number()`. Purely an artifact of testing with raw `docker run`;
+    the real deploy path (`docker compose`, and the VM's systemd unit which
+    also calls `docker compose`) parses `.env` correctly. Don't debug env
+    issues with `docker run --env-file` on this project — it lies.
 
 ## Phase 2 — question bank & contest domain rules
 - **Question edit is replace-all**: PATCH on `/api/admin/questions/[id]` deletes

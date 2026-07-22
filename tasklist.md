@@ -43,9 +43,13 @@ Granular checklist tracking the approved phase plan. `[x]` done, `[ ]` pending.
       flag if you want vitest/node:test added)
 - [x] Checkpoint: author questions (MCQ/TEXT/CODING), assemble + publish a
       contest, publish/lock/delete guards all verified via curl E2E ✅
-- [ ] KNOWN ISSUE (pre-existing, not this phase): `bun run build` fails
-      prerendering `/_global-error` since the theme-provider commit — see
-      `memory.md`. Needs a fix before the app is prod-buildable.
+- [x] RESOLVED (during Phase 3 deploy-pipeline work, root cause was actually a
+      genuine Next.js core bug, not `next-themes` as originally suspected):
+      `bun run build`/Docker build failing prerendering `/_global-error` — see
+      `memory.md` "RESOLVED" section for the full investigation, the
+      `export const dynamic = "force-dynamic"` fix on the root layout, and the
+      `bun patch`-based Next.js patch (`patches/next@16.2.11.patch`) needed
+      for the one route that can't opt out of the broken path any other way.
 - [x] Post-checkpoint fix: `isContestLocked` was wall-clock-based
       (`now >= startAt`), which permanently bricked any contest whose start
       time passed with nobody in it (couldn't add questions/roster — no

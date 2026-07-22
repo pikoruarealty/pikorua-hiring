@@ -75,6 +75,10 @@ services:
       DATABASE_URL: "postgresql://contest:contest@postgres:5432/contest?schema=public"
       REDIS_URL: "redis://redis:6379"
       PISTON_API_URL: "http://piston:2000"
+      # .env's NODE_ENV=development (correct for `bun run dev` on the host)
+      # would otherwise override the image's own `ENV NODE_ENV=production`,
+      # since env_file/environment always wins over an image's baked-in ENV.
+      NODE_ENV: "production"
     ports:
       - "3000:3000"
     depends_on:
@@ -97,6 +101,7 @@ services:
       DATABASE_URL: "postgresql://contest:contest@postgres:5432/contest?schema=public"
       REDIS_URL: "redis://redis:6379"
       PISTON_API_URL: "http://piston:2000"
+      NODE_ENV: "production"
     depends_on:
       postgres:
         condition: service_healthy
