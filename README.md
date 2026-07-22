@@ -1,36 +1,59 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Assessment Platform
 
-## Getting Started
+Timed MCQ / TEXT / coding contests for candidate shortlisting. See
+`initial-prompt.md` for the original spec, `progress.md` for what's actually
+built phase by phase, `tasklist.md` for the granular checklist, and
+`memory.md` for non-obvious gotchas, bugs, and decisions — **read `memory.md`
+before touching `next`, the `Dockerfile`, or your package manager**, it has a
+load-bearing upstream Next.js bug workaround documented there.
 
-First, run the development server:
+`AGENTS.md` also matters: this project pins a specific Next.js version with
+real breaking changes from what you might expect — check
+`node_modules/next/dist/docs/` before assuming an API works the way you
+remember.
+
+## Package manager: **bun**, not npm/yarn/pnpm
+
+This is not a style preference — `patchedDependencies` in `package.json`
+(see `patches/`) is a Bun-specific mechanism that other package managers
+silently ignore. Using `npm install` instead of `bun install` will produce a
+build that's missing a required upstream-bug workaround; see `memory.md`'s
+"RESOLVED: `/_global-error`" section for what breaks and why.
+
+## Getting started (local dev)
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+docker compose up -d postgres redis piston   # infra only — postgres on host 5544, not 5432
+bun install
+cp .env.example .env                          # fill in real values
+bunx prisma migrate dev
+bun run db:seed                                # admin / alice / bob dev accounts, see memory.md
+bun run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Common commands
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+bun run dev            # Next dev server (Turbopack)
+bun run build           # production build — see memory.md before debugging failures here
+bun run lint            # eslint
+bunx tsc --noEmit        # typecheck
+bun run db:studio       # Prisma Studio
+bun run worker          # BullMQ worker (code execution queue, Phase 4+)
+```
 
-## Learn More
+## Full-stack via Docker
 
-To learn more about Next.js, take a look at the following resources:
+```bash
+docker compose --profile app up --build   # web + worker + infra, all containerized
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Deploying
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+CI/CD lives in `.github/workflows/deploy.yml` (GHCR build + push, then SSH to
+a VM where `ops/hiring-app.service` — a systemd unit — owns the `web`/
+`worker` container lifecycle). See `progress.md`'s "Deploy pipeline" section
+for the full picture and `docker-compose.prod.yml` for how the VM resolves
+prebuilt images instead of building locally.

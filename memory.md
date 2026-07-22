@@ -121,6 +121,49 @@ rationale lives in the approved plan; this is the "don't trip over these" list.
      new `build/index.js`, `bun patch --commit`) — a future Next release may
      fix this upstream, at which point the patch (and this note) can be
      deleted.
+- **Confirmed as a known, still-unresolved upstream Next.js 16 bug**, not
+  something guessed at from local investigation alone — matches
+  [vercel/next.js#84994](https://github.com/vercel/next.js/issues/84994),
+  [#86178](https://github.com/vercel/next.js/issues/86178), and
+  [#85668](https://github.com/vercel/next.js/issues/85668), all reporting the
+  identical `useContext` null crash during `/_global-error` prerendering
+  since Next 16.0.0-canary builds. All three were auto-closed by GitHub's bot
+  for "missing reproduction link," **not because they were fixed** — no
+  maintainer response, no linked PR, no official workaround in any of them.
+  One reporter (#85668) explicitly tried `force-dynamic`, `output:
+  "standalone"`, `experimental.dynamicIO`, and removing hooks entirely — all
+  failed for their case too. As of this writing, patching Next's build source
+  is the only known way to unblock this; it isn't a shortcut taken instead of
+  an easier fix that was missed.
+- **If you're a second developer on this repo (not just future-me): read
+  this before touching `next`, the `Dockerfile`, or your package manager.**
+  This only matters for `next build` / Docker builds — `bun run dev` never
+  triggers it, so you can work on Phase 4+ without ever thinking about this.
+  It bites you only if:
+  - **You use `npm`/`yarn`/`pnpm` instead of `bun`.** `patchedDependencies`
+    (`package.json` + `bun.lock`) is a Bun-specific mechanism — a different
+    package manager silently won't apply `patches/next@16.2.11.patch`, and
+    the crash comes back the next time anyone runs `next build` or builds
+    the Docker image. Use `bun` for installs on this repo, full stop.
+  - **You run `bun add next@latest` / `bun update next`.** The patch is
+    keyed to the exact string `next@16.2.11` in `patchedDependencies`. Any
+    version bump breaks that key match and the patch silently stops
+    applying. If you need to upgrade `next`: after upgrading, run `bun run
+    build` — if it fails with this same `useContext`/`/_global-error`
+    crash, first check whether it's fixed in your new version (try removing
+    the patch entirely and rebuilding); if not, re-diff via `bun patch next`
+    against the new `dist/build/index.js`/`dist/build/utils.js` (search for
+    `UNDERSCORE_GLOBAL_ERROR_ROUTE`/`_global-error/page` — the exact line
+    numbers will have shifted) and `bun patch --commit`.
+  - **You refactor the `Dockerfile`'s `base` stage.** `patches/` must be
+    `COPY`'d in *before* `RUN bun install` — it currently is
+    (`COPY patches ./patches`, right after `COPY package.json bun.lock*`).
+    Don't reorder this without keeping that constraint.
+  - Do **not** "clean up" `src/app/global-error.tsx` or the `export const
+    dynamic = "force-dynamic"` in `src/app/layout.tsx` thinking they're
+    unrelated leftovers — both are load-bearing for this fix (the dynamic
+    export fixes all 11 real routes; the patch fixes the one route that
+    can't use it).
   3. `src/app/global-error.tsx` was added as an explicit (not auto-generated)
      implementation — this Next fork renamed the boundary's reset callback
      from `reset` to `unstable_retry` (see `AGENTS.md`'s warning about
