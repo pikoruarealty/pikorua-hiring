@@ -63,7 +63,7 @@ services:
       PISTON_RUN_TIMEOUT: "15000"
       PISTON_RUN_CPU_TIME: "15000"
     ports:
-      - "2000:2000"
+      - "127.0.0.1:2000:2000"
     volumes:
       - pistondata:/piston
     tmpfs:
