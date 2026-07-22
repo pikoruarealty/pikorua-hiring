@@ -1,10 +1,4 @@
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { ContestsDashboard } from "@/components/participant/contests-dashboard";
 
 export default function ParticipantDashboard() {
   return (
@@ -12,21 +6,10 @@ export default function ParticipantDashboard() {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Your contests</h1>
         <p className="text-muted-foreground">
-          Contests you are invited to will appear here.
+          Contests you are invited to (or open contests) appear here.
         </p>
       </div>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">No contests yet</CardTitle>
-          <CardDescription>
-            You don&apos;t have any upcoming, active, or past contests. When an
-            admin invites you to a contest, it will show up on this dashboard
-            (Phase 3).
-          </CardDescription>
-        </CardHeader>
-        <CardContent />
-      </Card>
+      <ContestsDashboard />
     </div>
   );
 }

@@ -43,6 +43,14 @@ export async function requireAdmin(): Promise<AuthenticatedUser | NextResponse> 
   return user;
 }
 
+/** Require a PARTICIPANT. Returns the user or a 401/403 NextResponse. */
+export async function requireParticipant(): Promise<AuthenticatedUser | NextResponse> {
+  const user = await getSessionUser();
+  if (!user) return jsonError(401, "Not authenticated");
+  if (user.role !== UserRole.PARTICIPANT) return jsonError(403, "Forbidden");
+  return user;
+}
+
 /**
  * CSRF guard for state-changing routes. Call after resolving the user. Returns
  * null if OK, or a 403 NextResponse to return.

@@ -80,3 +80,105 @@ rationale lives in the approved plan; this is the "don't trip over these" list.
 ## Dev credentials (seed, NEVER prod)
 - admin / `Admin@12345` · alice / `Alice@12345` · bob / `Bobby@12345`
 - Re-running `bun run db:seed` resets these passwords (idempotent upsert).
+
+## Known issue: `bun run build` fails on `/_global-error` (pre-existing, not Phase 2)
+- Since the theme-provider commit (`8ea1f87`/`e24899b`, before Phase 2 started),
+  `next build` fails prerendering the auto-generated `/_global-error` page:
+  `TypeError: null is not an object (evaluating 'k.H.useContext')`. Reproduced on
+  a clean stash of Phase 2's changes, so it's unrelated to the contest/question
+  work — almost certainly `next-themes`' `ThemeProvider` (in `src/app/layout.tsx`)
+  losing context during Next 16 + React 19's static prerender of the global error
+  boundary. `bunx tsc --noEmit` and `bun run dev` both work fine; Phase 2 was
+  verified via the dev server + scripted curl E2E, not `bun run build`. Needs a
+  fix (e.g. a plain `global-error.tsx` that doesn't depend on the provider tree,
+  or pinning/patching next-themes) before this is prod-buildable again.
+
+## Phase 2 — question bank & contest domain rules
+- **Question edit is replace-all**: PATCH on `/api/admin/questions/[id]` deletes
+  and recreates `options` / `textAnswerConfig` / `codingConfig`+`testCases` in one
+  transaction (`replaceQuestionContent` in `src/lib/questions.ts`) rather than
+  diffing rows. A question's `type` cannot change after creation (create a new
+  question instead) — enforced in the route, not just the UI.
+- **CODING `defaultPoints` is server-computed**, not admin-entered: it's always
+  `sum(testCases.score)` (`codingTotalScore`), recalculated on every create/edit,
+  so the stored ceiling can never drift from the actual test cases. MCQ/TEXT
+  `defaultPoints` remains admin-entered.
+- **Structural lock is activity-based, NOT wall-clock-based** (fixed after a
+  real bug): `isContestLocked(contestId)` in `src/lib/contests.ts` is `async`
+  and checks whether any `ContestParticipant` row has a non-null
+  `contestStartedAt` — i.e. whether someone has actually entered. It is
+  **not** `now >= startAt`. The first version used wall-clock time, which
+  permanently bricked any contest whose start time passed before Phase 3 (the
+  only thing that can set `contestStartedAt`) existed — admins could never add
+  questions or invite participants to it again. Once locked, contest field
+  edits, question attach/detach/reorder, and roster add/remove are all
+  blocked (409). This is independent of the `DRAFT → SCHEDULED` publish state.
+- **A question already attached to a non-DRAFT contest is edit-locked**
+  (`canEditQuestion` in `src/lib/questions.ts`) — full-block (not just structural
+  fields) is the deliberate simple default, so publishing a contest can't be
+  silently undermined by editing a question it references afterward.
+- **Publish gate** (`assertPublishable`): requires ≥1 attached question, and for
+  `INVITE_ONLY` contests ≥1 roster entry (an invite-only contest nobody's invited
+  to can never be entered). `OPEN` contests need no explicit roster.
+- Delete guards mirror the Phase 1 participant pattern: hard-delete only if
+  never referenced (question: no `ContestQuestion`; contest: still `DRAFT`),
+  else 409 suggesting archive/unpublish.
+- Canonical coding language codes (`c`/`cpp`/`java`/`python`) live in
+  `src/lib/languages.ts` — shared vocabulary between the Phase 2 question editor
+  and the Phase 4 Piston executor; mapping to Piston's actual runtime slugs is a
+  Phase 4 concern, not resolved yet.
+
+## shadcn `ui/` component bugs (found via manual UI testing, fixed at the component level)
+- **`ui/dialog.tsx`**: the default width was `sm:max-w-sm`. A consumer
+  overriding width with an unprefixed `max-w-*` class (e.g. `max-w-2xl`) does
+  NOT reliably win — `sm:` and unprefixed are different twMerge groups, so
+  both rules end up in the compiled CSS and whichever has later source order
+  wins, which is not guaranteed. Fixed by dropping the `sm:` prefix from the
+  base so any override matches the same group and twMerge dedupes correctly.
+  Any *new* default-width tweak to `DialogContent` must stay unprefixed for
+  the same reason.
+- **`ui/select.tsx`**: `SelectContent` defaulted to Radix's
+  `position="item-aligned"` (pops the list centered over the *selected item*,
+  native-`<select>`-style) instead of `position="popper"` (opens directly
+  below the trigger — what every other dropdown, and users, expect). Fixed
+  the default; also changed `min-w-36` to match the trigger's width
+  (`min-w-(--radix-select-trigger-width)`) so filter dropdowns aren't
+  randomly wider/narrower than their trigger.
+
+## Phase 3 — participant contest-taking domain rules
+- **`isContestLocked` is activity-based, not wall-clock-based** (see Phase 2
+  section above — this was a real bug found via manual testing after Phase 3
+  didn't exist yet to generate real activity). `ContestParticipant
+  .contestStartedAt` — set only by `POST .../start` — is the sole lock
+  trigger now.
+- **The palette's 5 states are derived, not stored**: `visited` +
+  `markedForReview` (booleans on `Attempt`) plus "has an answer" (computed
+  from `selectedOptionIds`/`textAnswer`) combine in `paletteStatus()`
+  (`src/components/participant/types.ts`) to produce Not Visited / Not
+  Answered / Answered / Marked / Answered & Marked. No separate status enum.
+- **MCQ/TEXT are scored synchronously on every autosave**, not deferred to
+  submit — `PATCH .../answers/[cqId]` calls `computeAnswerScore` (wraps
+  Phase 2's `scoring.ts`) on every save. `POST .../submit` just sums the
+  already-computed scores; it does no grading itself. Coding will differ in
+  Phase 4 (async via BullMQ/Piston).
+- **Timeout is detected server-side on every read, not by a cron job**:
+  `ensureNotExpired(contest, contestParticipantId)` is called at the top of
+  the detail GET, the answer PATCH, and the submit POST. If
+  `now >= effectiveDeadline` and the participant is still `IN_PROGRESS`, it
+  finalizes them as `AUTO_SUBMITTED` right there, before doing anything else.
+  This is what stops a candidate from "extending" time by simply not calling
+  submit — the very next request of any kind closes them out. Verified by
+  backdating `contestStartedAt` via direct SQL and confirming a bare `GET`
+  (no submit call) flipped status to `AUTO_SUBMITTED`.
+- **`effectiveDeadline`** = min(`contest.endAt`, `contestStartedAt +
+  durationMinutes`) — a contest has both a global window and a per-participant
+  duration once they've started; whichever is tighter wins.
+- **Participant-facing question projection strips grading data**:
+  `toParticipantQuestion()` never includes `Option.score`/`isCorrect`,
+  `TextAnswerConfig.correctAnswer`, or `CodingQuestionConfig.solutionCode`.
+  Verified by inspecting the actual GET response body during E2E, not just
+  reading the code.
+- Coding questions are visible in the palette/question list in Phase 3 but
+  the answer route 400s them (`"Coding questions are answered from the code
+  editor"`) — the UI shows a placeholder and only allows Skip. Real answering
+  arrives in Phase 4.

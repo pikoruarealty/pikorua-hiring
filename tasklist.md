@@ -35,17 +35,45 @@ Granular checklist tracking the approved phase plan. `[x]` done, `[ ]` pending.
 - [x] Checkpoint: import 23→21 created/2 skipped, export PDF, login as one, single-session ✅
 
 ## Phase 2 — Admin contest & question-bank CRUD
-- [ ] Question bank CRUD (MCQ per-option scores / TEXT / CODING config+testcases)
-- [ ] Contest CRUD + attach questions via ContestQuestion (reorder, overrides)
-- [ ] Visibility (INVITE_ONLY roster / OPEN) + publish flow
-- [ ] Scoring pure functions + unit tests
-- [ ] Checkpoint: author questions, assemble + publish a contest
+- [x] Question bank CRUD (MCQ per-option scores / TEXT / CODING config+testcases)
+- [x] Contest CRUD + attach questions via ContestQuestion (reorder, overrides)
+- [x] Visibility (INVITE_ONLY roster / OPEN) + publish flow
+- [x] Scoring pure functions (`src/lib/scoring.ts`; no test runner configured
+      yet, so verified via manual smoke script rather than a unit-test file —
+      flag if you want vitest/node:test added)
+- [x] Checkpoint: author questions (MCQ/TEXT/CODING), assemble + publish a
+      contest, publish/lock/delete guards all verified via curl E2E ✅
+- [ ] KNOWN ISSUE (pre-existing, not this phase): `bun run build` fails
+      prerendering `/_global-error` since the theme-provider commit — see
+      `memory.md`. Needs a fix before the app is prod-buildable.
+- [x] Post-checkpoint fix: `isContestLocked` was wall-clock-based
+      (`now >= startAt`), which permanently bricked any contest whose start
+      time passed with nobody in it (couldn't add questions/roster — no
+      recovery). Changed to activity-based (locked only once a
+      `ContestParticipant.contestStartedAt` exists) — see `memory.md`.
+- [x] UI polish: fixed a real Dialog width-override bug (base `sm:max-w-sm`
+      losing the breakpoint fight against unprefixed overrides), and Select
+      dropdowns defaulting to Radix's `item-aligned` position instead of the
+      standard `popper` (below-trigger) — both fixed at the `ui/` component
+      level. Question editor redesigned with Details/Content tabs.
 
 ## Phase 3 — Participant MCQ/TEXT contest-taking flow
-- [ ] Register/start with server-authoritative IST countdown
-- [ ] Question palette + Save/Mark/Clear/Skip + debounced autosave
-- [ ] Final submit (manual + timeout auto-submit) + scoring
-- [ ] Checkpoint: take a full MCQ+TEXT contest, autosave survives refresh
+- [x] Attempt.visited/markedForReview schema fields + migration
+- [x] Register/start with server-authoritative countdown (`effectiveDeadline`)
+- [x] Question palette (5-state) + Save/Mark/Clear/Skip + autosave (MCQ:
+      instant on toggle, TEXT: 600ms debounced)
+- [x] Final submit (manual + server-detected timeout via `ensureNotExpired`,
+      called from every read/write route, not a cron job) + synchronous
+      MCQ/TEXT scoring
+- [x] Safe participant-facing question projection (no scores/correct
+      answers/solutions leaked)
+- [x] Checkpoint: full MCQ+TEXT run, autosave survives simulated refresh,
+      submit locks further edits, backdated-start timeout auto-submits
+      server-side with zero client submit call ✅
+- [x] Post-checkpoint: fixed `isContestLocked` (was wall-clock-based,
+      bricked past-start empty contests — see Phase 2 tasklist entry) and two
+      real shadcn component bugs (Dialog width override, Select popper
+      position) reported during manual testing
 
 ## Phase 4 — Coding flow: Monaco + BullMQ + Piston + rate limiting
 - [ ] Monaco (IntelliSense/autocomplete disabled)

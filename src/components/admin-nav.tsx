@@ -7,6 +7,8 @@ import { cn } from "@/lib/utils";
 const LINKS = [
   { href: "/admin", label: "Dashboard", exact: true },
   { href: "/admin/participants", label: "Participants" },
+  { href: "/admin/questions", label: "Question bank" },
+  { href: "/admin/contests", label: "Contests" },
 ];
 
 export function AdminNav() {

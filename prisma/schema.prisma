@@ -335,6 +335,13 @@ model Attempt {
   selectedOptionIds String[] @default([])
   textAnswer        String?
 
+  // Question-palette state (Not Visited / Not Answered / Answered / Marked for
+  // Review / Answered & Marked for Review is derived from these two flags plus
+  // whether an answer is present). Set the instant a question is opened or
+  // saved — independent of `attemptType`/`status`, which describe grading.
+  visited         Boolean  @default(false)
+  markedForReview Boolean  @default(false)
+
   score           Decimal? @db.Decimal(10, 2)
   // Snapshot of points-at-attempt so later question edits don't rescore history.
   maxPossibleScore Decimal? @db.Decimal(10, 2)
