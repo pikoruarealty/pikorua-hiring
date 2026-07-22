@@ -3,8 +3,8 @@ import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { requireAdmin, requireCsrf, requestMeta } from "@/lib/auth/guards";
 import { writeAudit } from "@/lib/audit";
-import { addParticipantsSchema, isContestLocked } from "@/lib/contests";
-import { ContestVisibility, UserRole } from "@/generated/prisma/enums";
+import { addParticipantsSchema, inviteParticipants, isContestLocked } from "@/lib/contests";
+import { ContestVisibility } from "@/generated/prisma/enums";
 
 export const runtime = "nodejs";
 
@@ -104,25 +104,7 @@ export async function POST(
     return NextResponse.json({ error: "Invalid request" }, { status: 400 });
   }
 
-  const validUsers = await prisma.user.findMany({
-    where: { id: { in: input.userIds }, role: UserRole.PARTICIPANT },
-    select: { id: true },
-  });
-  const validIds = new Set(validUsers.map((u) => u.id));
-  const invalidCount = input.userIds.length - validIds.size;
-
-  const existingRows = await prisma.contestParticipant.findMany({
-    where: { contestId, userId: { in: [...validIds] } },
-    select: { userId: true },
-  });
-  const alreadyInvited = new Set(existingRows.map((r) => r.userId));
-  const toInvite = [...validIds].filter((id) => !alreadyInvited.has(id));
-
-  if (toInvite.length > 0) {
-    await prisma.contestParticipant.createMany({
-      data: toInvite.map((userId) => ({ contestId, userId })),
-    });
-  }
+  const result = await inviteParticipants(contestId, input.userIds);
 
   const { ip, userAgent } = await requestMeta();
   await writeAudit({
@@ -130,16 +112,12 @@ export async function POST(
     action: "INVITE_CONTEST_PARTICIPANTS",
     targetType: "Contest",
     targetId: contestId,
-    diff: { invited: toInvite.length, alreadyInvited: alreadyInvited.size, invalid: invalidCount },
+    diff: result,
     ip,
     userAgent,
   });
 
-  return NextResponse.json({
-    invited: toInvite.length,
-    alreadyInvited: alreadyInvited.size,
-    invalid: invalidCount,
-  });
+  return NextResponse.json(result);
 }
 
 /** DELETE — remove a participant from the roster via ?userId=, if they haven't started. */

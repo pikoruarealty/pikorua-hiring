@@ -164,3 +164,97 @@ function wrap(font: PDFFont, text: string, size: number, maxW: number): string[]
   if (current) lines.push(current);
   return lines;
 }
+
+export interface ResultRow {
+  rank: number;
+  username: string;
+  fullName: string | null;
+  totalScore: number;
+  tieBreakExecutionTimeMs: number | null;
+  status: string;
+}
+
+const RESULT_COLUMNS = [
+  { key: "rank" as const, label: "Rank", width: 40 },
+  { key: "fullName" as const, label: "Name", width: 140 },
+  { key: "username" as const, label: "Username", width: 110 },
+  { key: "totalScore" as const, label: "Score", width: 70 },
+  { key: "tieBreakExecutionTimeMs" as const, label: "Time (ms)", width: 80 },
+  { key: "status" as const, label: "Status", width: 99 },
+];
+
+/** Same layout/pagination pattern as `buildCredentialsPdf`, for the leaderboard export. */
+export async function buildResultsPdf(
+  rows: ResultRow[],
+  opts: { title?: string } = {},
+): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const bold = await doc.embedFont(StandardFonts.HelveticaBold);
+
+  const title = opts.title ?? "Contest Results";
+  const generatedAt = new Date().toISOString().replace("T", " ").slice(0, 16);
+
+  const contentW = PAGE.w - MARGIN * 2;
+  const ink = rgb(0.1, 0.1, 0.12);
+  const muted = rgb(0.42, 0.42, 0.46);
+  const line = rgb(0.82, 0.82, 0.85);
+  const headerBg = rgb(0.95, 0.95, 0.97);
+
+  let page = doc.addPage([PAGE.w, PAGE.h]);
+  let y = PAGE.h - MARGIN;
+
+  const drawTableHeader = () => {
+    page.drawRectangle({ x: MARGIN, y: y - HEADER_H, width: contentW, height: HEADER_H, color: headerBg });
+    let x = MARGIN + 6;
+    for (const col of RESULT_COLUMNS) {
+      page.drawText(col.label, { x, y: y - HEADER_H + 8, size: 9, font: bold, color: muted });
+      x += col.width;
+    }
+    y -= HEADER_H;
+  };
+
+  const drawPageChrome = (isFirst: boolean) => {
+    if (isFirst) {
+      page.drawText(title, { x: MARGIN, y, size: 18, font: bold, color: ink });
+      y -= 22;
+      page.drawText(`Generated ${generatedAt} UTC · ${rows.length} participants`, {
+        x: MARGIN,
+        y,
+        size: 9,
+        font,
+        color: muted,
+      });
+      y -= 20;
+    }
+    drawTableHeader();
+  };
+
+  drawPageChrome(true);
+
+  rows.forEach((r, idx) => {
+    if (y - ROW_H < MARGIN + 20) {
+      page = doc.addPage([PAGE.w, PAGE.h]);
+      y = PAGE.h - MARGIN;
+      drawPageChrome(false);
+    }
+    if (idx % 2 === 1) {
+      page.drawRectangle({ x: MARGIN, y: y - ROW_H, width: contentW, height: ROW_H, color: rgb(0.985, 0.985, 0.99) });
+    }
+    let x = MARGIN + 6;
+    for (const col of RESULT_COLUMNS) {
+      const raw = String(r[col.key] ?? "");
+      page.drawText(fit(font, raw, 9, col.width - 10), { x, y: y - ROW_H + 7, size: 9, font, color: ink });
+      x += col.width;
+    }
+    page.drawLine({
+      start: { x: MARGIN, y: y - ROW_H },
+      end: { x: MARGIN + contentW, y: y - ROW_H },
+      thickness: 0.5,
+      color: line,
+    });
+    y -= ROW_H;
+  });
+
+  return doc.save();
+}

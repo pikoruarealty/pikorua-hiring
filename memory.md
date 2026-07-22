@@ -450,3 +450,59 @@ rationale lives in the approved plan; this is the "don't trip over these" list.
   fullscreen-request-on-start, the warning banner, keyboard-shortcut
   interception (F12/Ctrl+Shift+I/Ctrl+P etc.), and right-click/copy/paste
   interception should be checked manually.
+
+## Phase 6 — Results, leaderboard, export, shortlist domain rules
+- **Only final-state participants are ranked**: `getLeaderboard`
+  (`src/lib/results.ts`) filters to `SUBMITTED`/`AUTO_SUBMITTED`/
+  `LOCKED_OUT` before sorting — anyone still `INVITED`/`REGISTERED`/
+  `IN_PROGRESS` simply doesn't appear on the leaderboard yet (not shown with
+  a placeholder rank). Ranking itself reuses `compareForRanking`
+  (`src/lib/scoring.ts`, previously written in Phase 2 but unused until
+  now) rather than a new comparator — score desc, then submission time asc,
+  then `tieBreakExecutionTimeMs` asc, nulls last.
+- **Rank assignment is standard competition ranking** (ties share a rank,
+  next distinct rank leaves a gap — e.g. 1, 1, 3): computed by hand in
+  `getLeaderboard` via a rolling comparison against the previous sorted
+  row, since `compareForRanking` only tells you ordering, not rank numbers.
+- **Admin drill-down is intentionally unredacted**: `getParticipantDrilldown`
+  reads `Attempt.testCaseResults` straight from the DB and does **not** call
+  `redactHiddenResults` (the participant-facing redaction from Phase 4,
+  `.../contests/[id]/route.ts`). This was an explicit user decision — admins
+  need to see hidden test case actual/expected output to judge candidates,
+  unlike participants who must never see it. If a future shared helper ever
+  touches both codepaths, keep this asymmetry deliberate, not an oversight.
+- **Shortlist only targets an existing contest's roster** — no inline
+  "create contest and invite" flow (explicit user scope decision). It
+  reuses `inviteParticipants()` (`src/lib/contests.ts`, factored out of the
+  Phase 2 invite route so both routes share identical dedupe/validate
+  semantics) and the same guards as direct invite: target must be
+  `INVITE_ONLY` and not yet `isContestLocked` (see Phase 2 section — once a
+  contest has any participant with `contestStartedAt` set, its roster is
+  frozen, so shortlisting into an in-progress contest 409s).
+- **XLSX uses the new `xlsx` (SheetJS) dependency** (`bun add xlsx`) —
+  `src/lib/xlsx-results.ts`, one function (`buildResultsXlsx`) via
+  `XLSX.utils.json_to_sheet` + `XLSX.write(wb, {type: "buffer",
+  bookType: "xlsx"})`. CSV/PDF still use the existing hand-rolled `toCsv`
+  and `pdf-lib`-based builder (`buildResultsPdf`, co-located in
+  `pdf-credentials.ts` to reuse its private `fit()`/`wrap()`/page-layout
+  helpers — mirrors `buildCredentialsPdf`'s structure exactly, just a
+  different column set).
+- **`NextResponse` body typing gotcha**: passing a `Buffer` directly as the
+  response body (`new NextResponse(buf, ...)`) fails `tsc` — `Buffer` isn't
+  assignable to `BodyInit` in this TS/lib version even though it's a
+  `Uint8Array` at runtime. Fix is `new NextResponse(new Uint8Array(buf),
+  ...)` (see `.../results/export/route.ts`'s xlsx branch). Watch for this
+  in any future binary-export route.
+- **UI**: `ContestDetailClient` was a flat stacked-Cards page before this
+  phase; it's now wrapped in a `Tabs` (`Details | Questions & Roster |
+  Results`) purely to make room for the new Results panel without a new
+  route — `src/components/ui/tabs.tsx` existed since Phase 0's shadcn init
+  but was unused anywhere until now. `ContestResultsPanel` +
+  `ParticipantDrilldownDialog` + `ShortlistDialog`
+  (`src/components/contests/`) follow the same select/export/
+  `downloadBlob()` pattern already established in
+  `participants-client.tsx` (Phase 1) rather than inventing a new one.
+- Not yet manually browser-tested (no browser in this environment,
+  consistent with every prior phase) — the tasklist checkpoint (3+
+  participant contest with a real tie, exports opening correctly,
+  shortlist landing on the target roster) still needs a live run.

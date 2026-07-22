@@ -152,11 +152,39 @@ Granular checklist tracking the approved phase plan. `[x]` done, `[ ]` pending.
       and drag/tab UI should be checked in a real browser.
 
 ## Phase 6 — Results / leaderboard / shortlisting / export
-- [ ] Leaderboard with tie-break (submission time, then execution time)
-- [ ] Per-participant drill-down (code, test results, proctoring log)
-- [ ] CSV/XLSX/PDF export
-- [ ] Shortlist into new/existing contest
-- [ ] Checkpoint: 3+ participant contest, tie broken correctly, shortlist
+- [x] Leaderboard with tie-break (submission time, then execution time) —
+      `getLeaderboard` in `src/lib/results.ts` reuses the existing
+      `compareForRanking` (`scoring.ts`) instead of reimplementing it;
+      standard competition ranking (ties share a rank, gaps before the next
+      distinct rank). Only `SUBMITTED`/`AUTO_SUBMITTED`/`LOCKED_OUT`
+      participants are ranked.
+- [x] Per-participant drill-down (code, test results, proctoring log) —
+      `getParticipantDrilldown`, admin-only route, deliberately does **not**
+      call the participant-facing `redactHiddenResults` — hidden test case
+      actual output is shown in full, per direct instruction.
+- [x] CSV/XLSX/PDF export — CSV reuses `toCsv`, PDF reuses `pdf-lib` (new
+      `buildResultsPdf` co-located in `pdf-credentials.ts` to share its
+      private layout helpers), XLSX uses the new `xlsx` (SheetJS) dependency
+      (`src/lib/xlsx-results.ts`). Same selected/all scope + rate-limit +
+      audit pattern as the Phase 1 credentials export.
+- [x] Shortlist into new/existing contest — targets an **existing**
+      invite-only contest only (no inline contest creation, per direct
+      instruction). Roster-insertion logic factored out of the participants
+      invite route into a shared `inviteParticipants()` helper
+      (`src/lib/contests.ts`) so direct-invite and shortlist share identical
+      dedupe semantics.
+- [x] UI: new "Results" tab in `ContestDetailClient` (added a `Tabs` wrapper
+      — `Details | Questions & Roster | Results` — around the previously
+      flat page); `ContestResultsPanel` + `ParticipantDrilldownDialog` +
+      `ShortlistDialog` follow the existing `participants-client.tsx`
+      select/export/`downloadBlob()` conventions.
+- [x] `bunx tsc --noEmit`, `bun run lint` (0 errors — pre-existing warnings
+      in unrelated files untouched), and `bun run build` all clean.
+- [ ] Checkpoint: 3+ participant contest, tie broken correctly, shortlist —
+      not yet manually verified in a browser (no browser in this
+      environment); needs a live run with a real tie to confirm rank
+      display, exports opening correctly, and shortlisted participants
+      landing on the target roster as `INVITED`.
 
 ## Phase 7 — UI polish (shadcn, design-taste-frontend skill)
 - [ ] Design tokens, responsive layouts, empty/loading/error states

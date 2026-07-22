@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { prisma } from "@/lib/db";
-import { ContestVisibility, ContestStatus } from "@/generated/prisma/enums";
+import { ContestVisibility, ContestStatus, UserRole } from "@/generated/prisma/enums";
 
 /**
  * Contest domain rules: authoring schemas, the structural-lock window, and
@@ -74,6 +74,41 @@ export const reorderQuestionsSchema = z.object({
 export const addParticipantsSchema = z.object({
   userIds: z.array(z.string().min(1)).min(1).max(5000),
 });
+
+/**
+ * Shared roster-insertion logic: validate candidate user ids are real
+ * PARTICIPANT users, skip anyone already on the roster, insert the rest as
+ * `INVITED`. Used by both the direct invite route
+ * (`.../contests/[id]/participants`) and Phase 6's shortlist-into-contest
+ * flow so the dedupe/validation rules never drift between the two callers.
+ */
+export async function inviteParticipants(contestId: string, userIds: string[]) {
+  const validUsers = await prisma.user.findMany({
+    where: { id: { in: userIds }, role: UserRole.PARTICIPANT },
+    select: { id: true },
+  });
+  const validIds = new Set(validUsers.map((u) => u.id));
+  const invalidCount = userIds.length - validIds.size;
+
+  const existingRows = await prisma.contestParticipant.findMany({
+    where: { contestId, userId: { in: [...validIds] } },
+    select: { userId: true },
+  });
+  const alreadyInvited = new Set(existingRows.map((r) => r.userId));
+  const toInvite = [...validIds].filter((id) => !alreadyInvited.has(id));
+
+  if (toInvite.length > 0) {
+    await prisma.contestParticipant.createMany({
+      data: toInvite.map((userId) => ({ contestId, userId })),
+    });
+  }
+
+  return {
+    invited: toInvite.length,
+    alreadyInvited: alreadyInvited.size,
+    invalid: invalidCount,
+  };
+}
 
 /**
  * Publish DRAFT -> SCHEDULED. Requires at least one attached question, and

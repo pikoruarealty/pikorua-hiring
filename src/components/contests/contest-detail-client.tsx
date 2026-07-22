@@ -19,8 +19,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ContestQuestionsPanel } from "./contest-questions-panel";
 import { ContestRosterPanel } from "./contest-roster-panel";
+import { ContestResultsPanel } from "./contest-results-panel";
 import type { ContestDetail } from "./types";
 
 function toLocalInput(iso: string): string {
@@ -163,6 +165,14 @@ export function ContestDetailClient({ contestId }: { contestId: string }) {
         )}
       </div>
 
+      <Tabs defaultValue="details">
+        <TabsList>
+          <TabsTrigger value="details">Details</TabsTrigger>
+          <TabsTrigger value="questions-roster">Questions &amp; Roster</TabsTrigger>
+          <TabsTrigger value="results">Results</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="details" className="flex flex-col gap-6">
       <Card>
         <CardHeader>
           <CardTitle>Details</CardTitle>
@@ -265,30 +275,38 @@ export function ContestDetailClient({ contestId }: { contestId: string }) {
           )}
         </CardContent>
       </Card>
+        </TabsContent>
 
-      <div className="grid gap-6 lg:grid-cols-2">
-        <ContestQuestionsPanel
-          contestId={contestId}
-          questions={contest.contestQuestions}
-          editable={editable}
-          onChanged={() => load({ silent: true })}
-        />
-        {contest.visibility === "INVITE_ONLY" ? (
-          <ContestRosterPanel contestId={contestId} editable={editable} />
-        ) : (
-          <Card>
-            <CardHeader>
-              <CardTitle>Roster</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-sm text-muted-foreground">
-                This contest is open to all registered participants — no explicit invite list is
-                needed.
-              </p>
-            </CardContent>
-          </Card>
-        )}
-      </div>
+        <TabsContent value="questions-roster">
+          <div className="grid gap-6 lg:grid-cols-2">
+            <ContestQuestionsPanel
+              contestId={contestId}
+              questions={contest.contestQuestions}
+              editable={editable}
+              onChanged={() => load({ silent: true })}
+            />
+            {contest.visibility === "INVITE_ONLY" ? (
+              <ContestRosterPanel contestId={contestId} editable={editable} />
+            ) : (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Roster</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-sm text-muted-foreground">
+                    This contest is open to all registered participants — no explicit invite list is
+                    needed.
+                  </p>
+                </CardContent>
+              </Card>
+            )}
+          </div>
+        </TabsContent>
+
+        <TabsContent value="results">
+          <ContestResultsPanel contestId={contestId} />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }
