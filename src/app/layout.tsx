@@ -19,6 +19,14 @@ export const metadata: Metadata = {
   description: "Timed MCQ / coding contests for candidate shortlisting",
 };
 
+// Every route here is an authenticated dashboard driven by client-side
+// fetches against cookie-based sessions (no server-side cookies()/headers()
+// read, so Next has no signal to treat these as dynamic on its own) — static
+// prerendering of the client tree crashes during build (see memory.md). This
+// app has no static/marketing pages, so opt out globally rather than
+// per-route.
+export const dynamic = "force-dynamic";
+
 export default function RootLayout({
   children,
 }: Readonly<{

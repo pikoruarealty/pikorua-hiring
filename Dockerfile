@@ -6,11 +6,24 @@ FROM oven/bun:1.3-slim AS base
 WORKDIR /app
 # argon2 ships prebuilt binaries; no build toolchain needed for bun-slim.
 COPY package.json bun.lock* ./
+# patches/ carries a bun-patch workaround for an upstream Next.js build bug
+# (see patches/next@*.patch) — must be present before install so bun can
+# reapply it.
+COPY patches ./patches
 RUN bun install --frozen-lockfile
 
 FROM base AS build
 COPY . .
 RUN bunx prisma generate
+# `next build` statically evaluates every route module (page-data collection),
+# which imports src/lib/env.ts's zod-validated env — these placeholders only
+# need to satisfy that shape check at build time. The real values come from
+# `env_file: .env` at container runtime (docker-compose.yml) and are never
+# read from these.
+ENV DATABASE_URL="postgresql://build:build@localhost:5432/build" \
+    REDIS_URL="redis://localhost:6379" \
+    PISTON_API_URL="http://localhost:2000" \
+    APP_SECRET="build-time-placeholder-not-used-at-runtime-0000"
 RUN bun run build
 
 # --- web ---

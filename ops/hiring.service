@@ -1,0 +1,18 @@
+[Unit]
+Description=Hiring platform app containers
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/home/pruthvirajsinh_biz/pikorua-hiring
+# Compose recreates only containers whose image/config actually changed —
+# safe to call on every deploy without an explicit `down` first.
+ExecStart=/usr/bin/docker compose -f docker-compose.yml -f docker-compose.prod.yml --profile app up -d --remove-orphans
+ExecStop=/usr/bin/docker compose -f docker-compose.yml -f docker-compose.prod.yml --profile app down
+TimeoutStartSec=120
+
+[Install]
+WantedBy=multi-user.target
