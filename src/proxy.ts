@@ -12,9 +12,17 @@ import type { NextRequest } from "next/server";
  * src/lib/auth/guards.ts). The proxy can't hit the DB to validate the session, so
  * it only checks whether a session cookie exists at all.
  *
- * The CSP is intentionally permissive for dev (Phase 0 stub); it is tuned in
- * Phase 5 once Monaco's web workers and SSE endpoints are wired.
+ * CSP (tuned in Phase 5): Monaco (@monaco-editor/react) loads its bundle and
+ * worker scripts from jsdelivr's CDN by default (no self-hosting plugin is
+ * wired up — Next 16 + Turbopack, and self-hosting needs a webpack-specific
+ * plugin), so that host has to be allow-listed for script/style/worker/font
+ * sources. `'unsafe-inline'` on script/style is a known gap: Next's App
+ * Router injects inline hydration/RSC payload scripts and Tailwind emits
+ * inline style attributes, and this app has no nonce plumbing to replace it
+ * with. Tightening that further (nonce-based CSP) is a follow-up, not a
+ * Phase 5 blocker. connect-src covers same-origin fetch/XHR/SSE.
  */
+const MONACO_CDN = "https://cdn.jsdelivr.net";
 
 const SESSION_COOKIE = "contest_session";
 const PROTECTED_PREFIXES = ["/admin", "/participant"];
@@ -33,8 +41,22 @@ function securityHeaders(res: NextResponse): NextResponse {
     "Strict-Transport-Security",
     "max-age=31536000; includeSubDomains",
   );
-  // Phase 0 stub CSP: lock framing, tightened further in Phase 5.
-  res.headers.set("Content-Security-Policy", "frame-ancestors 'none'");
+  res.headers.set(
+    "Content-Security-Policy",
+    [
+      "default-src 'self'",
+      `script-src 'self' 'unsafe-inline' ${MONACO_CDN}`,
+      `style-src 'self' 'unsafe-inline' ${MONACO_CDN}`,
+      `font-src 'self' data: ${MONACO_CDN}`,
+      "img-src 'self' data: blob:",
+      "worker-src 'self' blob:",
+      "connect-src 'self'",
+      "frame-ancestors 'none'",
+      "base-uri 'self'",
+      "form-action 'self'",
+      "object-src 'none'",
+    ].join("; "),
+  );
   return res;
 }
 

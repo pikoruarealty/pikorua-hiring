@@ -104,12 +104,52 @@ Granular checklist tracking the approved phase plan. `[x]` done, `[ ]` pending.
       — see `memory.md`
 
 ## Phase 5 — Security & proctoring hardening
-- [ ] Fullscreen + visibility/blur/focus + devtools/right-click/copy-paste/print
-- [ ] Multi-monitor detection (best-effort)
-- [ ] Proctoring ingestion: warn at 1, auto-submit+lockout at 2 (server-side)
-- [ ] CSRF finalized; CSP tuned for Monaco/SSE; rate limits on login/export
-- [ ] AuditLog coverage audit; Piston network isolation verified
-- [ ] Checkpoint: two violations → auto-submit + lockout with full history
+- [x] Fullscreen + visibility/blur/focus + devtools/right-click/copy-paste/print
+      — `src/components/participant/use-proctoring.ts`, wired into
+      `contest-taking-client.tsx` while a contest is IN_PROGRESS. Fullscreen
+      is requested (best-effort, needs the Start-button user gesture) on
+      contest start.
+- [x] Multi-monitor detection (best-effort) — one-shot `window.screen.isExtended`
+      check (Window Management API, Chromium-only) on mount, reported as
+      `MULTI_MONITOR_DETECTED` if true.
+- [x] Proctoring ingestion: warn at 1, auto-submit+lockout at 2 (server-side)
+      — `src/lib/proctoring.ts` (`recordProctoringEvent`, transactional
+      strike-counting) + `POST .../contests/[id]/proctoring-events`.
+      `finalizeSubmission` (`src/lib/participant-contests.ts`) extended with
+      a `"PROCTORING"` reason → `ParticipantStatus.LOCKED_OUT`, and an
+      optional transaction-client param so it can run inside proctoring's
+      own transaction (nested `prisma.$transaction` isn't supported).
+      `FOCUS_RETURN` is logged but never a strike (it's the "came back"
+      companion event); fullscreen-exit/blur/visibility-hidden are coalesced
+      (800ms suppression window) since exiting fullscreen or switching tabs
+      fires more than one browser event for the same real action.
+- [x] CSRF finalized (added to `/api/auth/logout`, the one state-changing
+      route that was missing it — every other POST/PATCH/DELETE route
+      already had it); CSP tuned in `src/proxy.ts` for Monaco (CDN
+      script/style/font/worker sources — see file comment for the
+      `'unsafe-inline'` tradeoff) and SSE (`connect-src 'self'` covers same-
+      origin fetch/EventSource); rate limits on login/export were already in
+      place from earlier phases, verified still correct; new proctoring
+      ingestion endpoint rate-limited (20/10s/participant, fails open —
+      dropping an occasional event is fine, a hard 429 would let spamming
+      dodge the very trigger meant to catch them).
+- [x] AuditLog coverage audit — every admin mutation route already calls
+      `writeAudit` (verified via grep, no gaps found). Piston network
+      isolation verified: `docker-compose.yml`'s piston port mapping was
+      `2000:2000` (all interfaces) despite its own comment saying it must
+      not be exposed publicly — changed to `127.0.0.1:2000:2000` (loopback
+      only, so `bun run dev` on the host still reaches it, but it's not
+      reachable from outside the host in either dev or the `--profile app`
+      container stack, which talks to it over the internal Docker network
+      regardless).
+- [x] Checkpoint: live-tested via curl as `alice` against the throwaway
+      "Verify Fixes" contest — `TAB_BLUR` → `{"action":"WARNED"}`, then
+      `DEVTOOLS_ATTEMPT` → `{"action":"AUTO_SUBMITTED","status":"LOCKED_OUT"}`,
+      then a third event confirmed idempotent (`"action":"NONE"`, status
+      stays `LOCKED_OUT`). `bunx tsc --noEmit` and `bun run lint` both clean.
+      Not visually tested (no browser in this environment) — fullscreen
+      request on Start, the warning banner, devtools-shortcut interception,
+      and drag/tab UI should be checked in a real browser.
 
 ## Phase 6 — Results / leaderboard / shortlisting / export
 - [ ] Leaderboard with tie-break (submission time, then execution time)

@@ -386,3 +386,67 @@ rationale lives in the approved plan; this is the "don't trip over these" list.
   participant coding results/code is not implemented — user said it's fine
   to leave for a future phase (likely folds into Phase 6's per-participant
   drill-down).
+
+## Phase 5 — Security & proctoring hardening
+
+- **Strike policy**: every `ProctoringEventType` except `FOCUS_RETURN` counts
+  as a strike toward the 2-strike auto-submit+lockout — `FOCUS_RETURN` is
+  logged (for the timeline/audit trail) but is the "came back" companion
+  event to `TAB_BLUR`/`VISIBILITY_HIDDEN`, not itself a violation. This
+  wasn't spelled out in the schema/tasklist, it's a judgment call — see
+  `isStrike()` in `src/lib/proctoring.ts`.
+- **Event coalescing**: exiting fullscreen and switching tabs each fire more
+  than one raw browser event for the same real action (`fullscreenchange`
+  commonly also blurs the window; alt-tab fires both `visibilitychange` and
+  `blur` near-simultaneously). Without suppression, one real "left the tab"
+  action would burn 2 strikes and instant-lockout on the first switch. Fixed
+  with an 800ms companion-suppression window in
+  `src/components/participant/use-proctoring.ts` — `FULLSCREEN_EXIT` and
+  `VISIBILITY_HIDDEN` set a suppress-until timestamp that the `blur` handler
+  checks before reporting `TAB_BLUR`.
+- **`finalizeSubmission` (`src/lib/participant-contests.ts`) now takes a 3rd
+  reason, `"PROCTORING"`** (→ `ParticipantStatus.LOCKED_OUT`), plus an
+  optional `reasonText` and an optional transaction-client 4th param. The
+  client param exists because `recordProctoringEvent` in
+  `src/lib/proctoring.ts` needs to call it from *inside* its own
+  strike-counting transaction (read participant → count prior strikes →
+  write event → maybe finalize, all atomically) — Prisma doesn't support
+  nesting `prisma.$transaction` calls, so the transaction client has to be
+  threaded through instead.
+- **CSP**: went from a single-directive stub (`frame-ancestors 'none'` only)
+  to a real policy in `src/proxy.ts`. The main constraint is
+  `@monaco-editor/react`, which loads Monaco's JS/CSS/worker/font assets
+  from `cdn.jsdelivr.net` by default (no self-hosting webpack plugin is
+  wired up, and Next 16 defaults to Turbopack, which that plugin doesn't
+  support) — so that host is allow-listed on `script-src`/`style-src`/
+  `font-src`, and `worker-src` allows `blob:` for Monaco's web workers.
+  `'unsafe-inline'` is still present on `script-src`/`style-src` (Next's App
+  Router hydration/RSC inline scripts + Tailwind inline style attributes,
+  no nonce plumbing exists to replace it) — **known gap**, a nonce-based
+  strict CSP would need `next.config.ts` changes to thread a per-request
+  nonce through, which felt out of scope for this pass. `connect-src 'self'`
+  is enough for the SSE stream endpoint since it's same-origin.
+- **Piston port exposure**: `docker-compose.yml` bound Piston's port as
+  `2000:2000` (all interfaces), directly contradicting its own comment ("in
+  production it must not be exposed publicly"). Piston executes arbitrary
+  participant-submitted code, so this was a real gap, not just a lint nit.
+  Changed to `127.0.0.1:2000:2000` — loopback-only. This doesn't break
+  either dev mode (`bun run dev` on the host still reaches `localhost:2000`,
+  which is what `.env.example`'s `PISTON_API_URL` already points at) or the
+  `--profile app` containerized stack (`web`/`worker` reach it via the
+  internal Docker network at `http://piston:2000`, never through the host
+  port at all).
+- **CSRF gap found**: `/api/auth/logout` was the one state-changing route
+  without `requireCsrf` (every other POST/PATCH/DELETE route already had
+  it, verified by grepping all `route.ts` files for the guard). Added it —
+  low severity on its own (worst case is a forced logout), but worth closing
+  since the checklist explicitly asked for CSRF to be "finalized."
+- **AuditLog coverage**: verified every admin mutation route already calls
+  `writeAudit` — no gaps found, nothing to change.
+- Live-verified end-to-end via curl as `alice` against the "Verify Fixes"
+  contest: `TAB_BLUR` → `WARNED`, `DEVTOOLS_ATTEMPT` → `AUTO_SUBMITTED` +
+  `LOCKED_OUT`, further events after lockout are no-ops. Not visually
+  tested in a browser (no browser available in this environment) — the
+  fullscreen-request-on-start, the warning banner, keyboard-shortcut
+  interception (F12/Ctrl+Shift+I/Ctrl+P etc.), and right-click/copy/paste
+  interception should be checked manually.

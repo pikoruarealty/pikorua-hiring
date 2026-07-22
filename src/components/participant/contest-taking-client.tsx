@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { QuestionPalette } from "./question-palette";
 import { CodingQuestionPanel } from "./coding-question-panel";
+import { useProctoring } from "./use-proctoring";
 import type { AnswerState, ContestStateResponse } from "./types";
 
 const RESYNC_MS = 20_000;
@@ -57,6 +58,7 @@ export function ContestTakingClient({ contestId }: { contestId: string }) {
 
   const debounceRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const submittingRef = useRef(false);
+  const [proctoringWarning, setProctoringWarning] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const res = await apiFetch(`/api/participant/contests/${contestId}`);
@@ -68,7 +70,11 @@ export function ContestTakingClient({ contestId }: { contestId: string }) {
     setData(body);
     if (body.answers) setAnswers(body.answers);
     if (body.remainingSeconds !== null) setRemaining(body.remainingSeconds);
-    if (body.participant?.status === "SUBMITTED" || body.participant?.status === "AUTO_SUBMITTED") {
+    if (
+      body.participant?.status === "SUBMITTED" ||
+      body.participant?.status === "AUTO_SUBMITTED" ||
+      body.participant?.status === "LOCKED_OUT"
+    ) {
       setFinalStatus(body.participant.status);
     }
     return body;
@@ -128,6 +134,19 @@ export function ContestTakingClient({ contestId }: { contestId: string }) {
     return () => clearTimeout(t);
   }, [remaining, finalStatus, handleSubmit]);
 
+  const proctoringActive = !!data?.participant?.contestStartedAt && !finalStatus;
+  useProctoring(contestId, proctoringActive, (outcome) => {
+    if (outcome.action === "WARNED") {
+      setProctoringWarning(
+        "Warning: leaving fullscreen, switching tabs, or attempting devtools/copy/print is being monitored. One more violation will end your contest.",
+      );
+      toast.error("Proctoring warning — one more violation ends your contest", { duration: 8000 });
+    } else if (outcome.action === "AUTO_SUBMITTED") {
+      setFinalStatus(outcome.status);
+      toast.error("Contest ended — repeated proctoring violation");
+    }
+  });
+
   async function persist(cqId: string, patch: Partial<AnswerState>) {
     const merged = { ...(answers[cqId] ?? defaultAnswer()), ...patch, visited: true };
     setAnswers((prev) => ({ ...prev, [cqId]: merged }));
@@ -184,6 +203,9 @@ export function ContestTakingClient({ contestId }: { contestId: string }) {
         toast.error(body.error ?? "Could not start contest");
         return;
       }
+      // Best-effort: requires the user gesture from this click. Silently
+      // ignored if the browser denies it (e.g. already blocked, unsupported).
+      document.documentElement.requestFullscreen?.().catch(() => {});
       await load();
     } catch {
       toast.error("Network error");
@@ -205,13 +227,18 @@ export function ContestTakingClient({ contestId }: { contestId: string }) {
       <Card>
         <CardHeader>
           <CardTitle>
-            {finalStatus === "AUTO_SUBMITTED" ? "Time expired — auto-submitted" : "Submitted"}
+            {finalStatus === "AUTO_SUBMITTED"
+              ? "Time expired — auto-submitted"
+              : finalStatus === "LOCKED_OUT"
+                ? "Contest ended — proctoring violation"
+                : "Submitted"}
           </CardTitle>
         </CardHeader>
         <CardContent>
           <p className="text-sm text-muted-foreground">
-            Your responses for &quot;{data.contest.title}&quot; have been recorded. Results will
-            be shared by the admin.
+            {finalStatus === "LOCKED_OUT"
+              ? "Your contest was ended after repeated proctoring violations (leaving fullscreen, switching tabs, or attempting devtools/copy/print). Your responses up to that point have been recorded."
+              : `Your responses for "${data.contest.title}" have been recorded. Results will be shared by the admin.`}
           </p>
         </CardContent>
       </Card>
@@ -286,6 +313,12 @@ export function ContestTakingClient({ contestId }: { contestId: string }) {
             {remaining !== null ? fmtClock(remaining) : "--:--:--"}
           </span>
         </div>
+
+        {proctoringWarning && (
+          <div className="rounded-lg border border-destructive/50 bg-destructive/10 px-4 py-2 text-sm text-destructive">
+            {proctoringWarning}
+          </div>
+        )}
 
         <Card>
           <CardHeader>

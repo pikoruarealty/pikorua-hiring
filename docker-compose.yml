@@ -62,8 +62,11 @@ services:
       # aren't killed early by run_cpu_time before our own run_timeout fires.
       PISTON_RUN_TIMEOUT: "15000"
       PISTON_RUN_CPU_TIME: "15000"
+    # Loopback-only: `bun run dev` (host) needs to reach this port, but it
+    # must never be reachable from outside the host, dev or prod — Piston
+    # executes arbitrary participant-submitted code.
     ports:
-      - "2000:2000"
+      - "127.0.0.1:2000:2000"
     volumes:
       - pistondata:/piston
     tmpfs:

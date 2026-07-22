@@ -117,22 +117,37 @@ export async function ensureNotExpired(
   return finalizeSubmission(contestParticipantId, "TIMEOUT");
 }
 
+const FINALIZE_STATUS: Record<"MANUAL" | "TIMEOUT" | "PROCTORING", ParticipantStatus> = {
+  MANUAL: ParticipantStatus.SUBMITTED,
+  TIMEOUT: ParticipantStatus.AUTO_SUBMITTED,
+  PROCTORING: ParticipantStatus.LOCKED_OUT,
+};
+
+type TxClient = Prisma.TransactionClient;
+
 /**
  * Score and lock in every saved (SUBMIT-type) attempt for this participant,
- * sum their scores into `totalScore`, and mark them submitted. Idempotent —
- * calling it again on an already-submitted participant is a no-op.
+ * sum their scores into `totalScore`, and mark them submitted/auto-submitted/
+ * locked-out. Idempotent — calling it again once already in a terminal
+ * status is a no-op. Pass `client` (a transaction client) when calling from
+ * inside another transaction, e.g. proctoring's own strike-counting
+ * transaction (see `src/lib/proctoring.ts`) — nesting `prisma.$transaction`
+ * calls isn't supported.
  */
 export async function finalizeSubmission(
   contestParticipantId: string,
-  reason: "MANUAL" | "TIMEOUT",
+  reason: "MANUAL" | "TIMEOUT" | "PROCTORING",
+  reasonText?: string,
+  client?: TxClient,
 ) {
-  return prisma.$transaction(async (tx) => {
+  const run = async (tx: TxClient) => {
     const participant = await tx.contestParticipant.findUniqueOrThrow({
       where: { id: contestParticipantId },
     });
     if (
       participant.status === ParticipantStatus.SUBMITTED ||
-      participant.status === ParticipantStatus.AUTO_SUBMITTED
+      participant.status === ParticipantStatus.AUTO_SUBMITTED ||
+      participant.status === ParticipantStatus.LOCKED_OUT
     ) {
       return participant;
     }
@@ -154,17 +169,17 @@ export async function finalizeSubmission(
     return tx.contestParticipant.update({
       where: { id: contestParticipantId },
       data: {
-        status:
-          reason === "TIMEOUT"
-            ? ParticipantStatus.AUTO_SUBMITTED
-            : ParticipantStatus.SUBMITTED,
+        status: FINALIZE_STATUS[reason],
         contestSubmittedAt: new Date(),
         totalScore,
         tieBreakExecutionTimeMs,
-        autoSubmittedReason: reason === "TIMEOUT" ? "Time expired" : null,
+        autoSubmittedReason:
+          reason === "TIMEOUT" ? "Time expired" : reason === "PROCTORING" ? (reasonText ?? "Proctoring violation") : null,
       },
     });
-  });
+  };
+
+  return client ? run(client) : prisma.$transaction(run);
 }
 
 /** Compute (and persist) the score for one saved MCQ/TEXT answer. */
