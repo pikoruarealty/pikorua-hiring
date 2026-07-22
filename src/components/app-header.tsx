@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { LogoutButton } from "./logout-button";
+import { ThemeToggle } from "./theme-toggle";
 
 interface AppHeaderProps {
   title: string;
@@ -21,6 +22,7 @@ export function AppHeader({ title, username, roleLabel }: AppHeaderProps) {
               {roleLabel}
             </span>
           </span>
+          <ThemeToggle />
           <LogoutButton />
         </div>
       </div>
