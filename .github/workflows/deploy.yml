@@ -10,13 +10,13 @@ name: Deploy
 #   SSH_PRIVATE_KEY    private key matching a public key in the VM's authorized_keys
 #   SSH_PORT           (optional) defaults to 22
 #   DEPLOY_PATH        absolute path to this repo's clone on the VM (matches
-#                      WorkingDirectory in ops/hiring-app.service)
+#                      WorkingDirectory in ops/hiring.service)
 #
-# The VM itself needs (one-time, see ops/hiring-app.service and the README
+# The VM itself needs (one-time, see ops/hiring.service and the README
 # section it's documented in): `.env` in place, `docker login ghcr.io`, infra
 # containers (postgres/redis/piston) already up, and the systemd unit
 # installed + enabled. SSH_USER needs passwordless sudo for exactly
-# `systemctl restart hiring-app.service` (see visudo line in the setup docs).
+# `systemctl restart hiring.service` (see visudo line in the setup docs).
 
 on:
   push:
@@ -113,8 +113,8 @@ jobs:
             $COMPOSE run --rm --no-deps web bunx prisma migrate deploy
 
             # Hand the actual container lifecycle off to systemd, which is
-            # what supervises web/worker on this box (see ops/hiring-app.service).
-            sudo systemctl restart hiring-app.service
-            sudo systemctl is-active --quiet hiring-app.service
+            # what supervises web/worker on this box (see ops/hiring.service).
+            sudo systemctl restart hiring.service
+            sudo systemctl is-active --quiet hiring.service
 
             docker image prune -f
