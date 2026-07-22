@@ -99,7 +99,7 @@ async function seedQuestions(adminId: string) {
           allowedLanguages: ["python", "c", "cpp", "java"],
           defaultHardLockSeconds: 600,
           starterCode: {
-            python: "import sys\na, b = map(int, sys.stdin.read().split())\nprint(a + b)\n",
+            python: "import sys\n\na, b = map(int, sys.stdin.read().split())\n# TODO: print the sum of a and b\n",
           },
           testCases: {
             create: [

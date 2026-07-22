@@ -76,11 +76,28 @@ Granular checklist tracking the approved phase plan. `[x]` done, `[ ]` pending.
       position) reported during manual testing
 
 ## Phase 4 — Coding flow: Monaco + BullMQ + Piston + rate limiting
-- [ ] Monaco (IntelliSense/autocomplete disabled)
-- [ ] Per-question hard-lock timer (server-side)
-- [ ] Run/Submit → BullMQ → worker → Piston; SSE status stream
-- [ ] 1-per-5s rate limit; output caps + timeout-kill → TIME_LIMIT_EXCEEDED
-- [ ] Checkpoint: Run live pass/fail, rate limit, hard-lock, graded Submit
+- [x] Monaco (IntelliSense/autocomplete disabled) — `CodeEditor` in
+      `src/components/participant/monaco-editor.tsx`
+- [x] Per-question hard-lock timer (server-side) — new `Attempt.questionStartedAt`
+      field, started via `POST .../visit`, resolved from
+      `ContestQuestion.hardLockSecondsOverride ?? CodingQuestionConfig.defaultHardLockSeconds`
+- [x] Run/Submit → BullMQ → worker → Piston; SSE status stream — real worker
+      in `src/worker/index.ts`, Redis pub/sub relayed over SSE at
+      `.../questions/[cqId]/stream`
+- [x] 1-per-5s rate limit; output caps + timeout-kill → TIME_LIMIT_EXCEEDED
+- [x] Checkpoint: Run live pass/fail, rate limit, hard-lock, graded Submit —
+      all verified via curl E2E against a fixture contest (see `memory.md`
+      for the two Piston config gotchas hit along the way)
+- [x] Post-checkpoint: fixed 5 bugs found during manual testing — SSE stream
+      TDZ crash (`heartbeat` used before declared, silently broke Run's live
+      feedback), admin contest builder scrolling to top on every save
+      (full-page reload state was remounting the whole tree), seed
+      `starterCode` for the sample coding question being the actual solution
+      instead of a stub, and sample test cases never being exposed to
+      participants at all (added end-to-end). Confirmed sample result
+      persistence during editing was already correct. Admin-side visibility
+      into coding results deferred to a future phase per direct instruction
+      — see `memory.md`
 
 ## Phase 5 — Security & proctoring hardening
 - [ ] Fullscreen + visibility/blur/focus + devtools/right-click/copy-paste/print

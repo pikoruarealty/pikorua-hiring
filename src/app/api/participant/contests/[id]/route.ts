@@ -9,8 +9,16 @@ import {
   toParticipantQuestion,
 } from "@/lib/participant-contests";
 import { AttemptType, ParticipantStatus } from "@/generated/prisma/enums";
+import { toParticipantTestCaseResult } from "@/lib/execution-events";
+import type { TestCaseResult } from "@/lib/execution";
+import type { Prisma } from "@/generated/prisma/client";
 
 export const runtime = "nodejs";
+
+function redactHiddenResults(testCaseResults: Prisma.JsonValue) {
+  if (!Array.isArray(testCaseResults)) return [];
+  return (testCaseResults as unknown as TestCaseResult[]).map(toParticipantTestCaseResult);
+}
 
 /**
  * GET — contest state for this participant: metadata, phase, and — once
@@ -80,6 +88,12 @@ export async function GET(
               memoryLimitMb: true,
               allowedLanguages: true,
               starterCode: true,
+              defaultHardLockSeconds: true,
+              testCases: {
+                where: { isSample: true },
+                orderBy: { order: "asc" },
+                select: { id: true, input: true, expectedOutput: true },
+              },
             },
           },
         },
@@ -87,7 +101,7 @@ export async function GET(
     },
   });
 
-  const attempts = await prisma.attempt.findMany({
+  const submitAttempts = await prisma.attempt.findMany({
     where: { contestParticipantId: participant.id, attemptType: AttemptType.SUBMIT },
     select: {
       contestQuestionId: true,
@@ -95,18 +109,80 @@ export async function GET(
       textAnswer: true,
       visited: true,
       markedForReview: true,
+      questionStartedAt: true,
+      language: true,
+      code: true,
+      status: true,
+      score: true,
+      maxPossibleScore: true,
+      totalExecutionTimeMs: true,
+      testCaseResults: true,
     },
   });
+  const runAttempts = await prisma.attempt.findMany({
+    where: { contestParticipantId: participant.id, attemptType: AttemptType.RUN },
+    select: {
+      contestQuestionId: true,
+      language: true,
+      code: true,
+      status: true,
+      totalExecutionTimeMs: true,
+      testCaseResults: true,
+    },
+  });
+  const runByQuestion = Object.fromEntries(runAttempts.map((r) => [r.contestQuestionId, r]));
+
   const answers = Object.fromEntries(
-    attempts.map((a) => [
-      a.contestQuestionId,
-      {
-        selectedOptionIds: a.selectedOptionIds,
-        textAnswer: a.textAnswer,
-        visited: a.visited,
-        markedForReview: a.markedForReview,
-      },
-    ]),
+    submitAttempts.map((a) => {
+      const run = runByQuestion[a.contestQuestionId];
+      return [
+        a.contestQuestionId,
+        {
+          selectedOptionIds: a.selectedOptionIds,
+          textAnswer: a.textAnswer,
+          visited: a.visited,
+          markedForReview: a.markedForReview,
+          questionStartedAt: a.questionStartedAt,
+          coding: a.language
+            ? {
+                submit: {
+                  language: a.language,
+                  code: a.code,
+                  status: a.status,
+                  score: a.score != null ? Number(a.score) : null,
+                  maxScore: a.maxPossibleScore != null ? Number(a.maxPossibleScore) : null,
+                  totalExecutionTimeMs: a.totalExecutionTimeMs,
+                  results: redactHiddenResults(a.testCaseResults),
+                },
+                run: run
+                  ? {
+                      language: run.language,
+                      code: run.code,
+                      status: run.status,
+                      totalExecutionTimeMs: run.totalExecutionTimeMs,
+                      results: redactHiddenResults(run.testCaseResults),
+                    }
+                  : null,
+              }
+            : run
+              ? {
+                  submit: null,
+                  run: {
+                    language: run.language,
+                    code: run.code,
+                    status: run.status,
+                    totalExecutionTimeMs: run.totalExecutionTimeMs,
+                    results: redactHiddenResults(run.testCaseResults),
+                  },
+                }
+              : null,
+        },
+      ];
+    }),
+  );
+
+  const questionStartedByQuestion = Object.fromEntries(
+    submitAttempts.map((a) => [a.contestQuestionId, a.questionStartedAt]),
   );
 
   return NextResponse.json({
@@ -115,7 +191,9 @@ export async function GET(
       status: participant.status,
       contestStartedAt: participant.contestStartedAt,
     },
-    questions: contestQuestions.map(toParticipantQuestion),
+    questions: contestQuestions.map((cq) =>
+      toParticipantQuestion(cq, questionStartedByQuestion[cq.id] ?? null),
+    ),
     answers,
     remainingSeconds:
       participant.status === ParticipantStatus.IN_PROGRESS

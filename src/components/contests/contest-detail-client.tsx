@@ -44,8 +44,8 @@ export function ContestDetailClient({ contestId }: { contestId: string }) {
     resultsVisibleToParticipants: boolean;
   } | null>(null);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (opts?: { silent?: boolean }) => {
+    if (!opts?.silent) setLoading(true);
     try {
       const res = await apiFetch(`/api/admin/contests/${contestId}`);
       const body = await res.json().catch(() => ({}));
@@ -99,7 +99,7 @@ export function ContestDetailClient({ contestId }: { contestId: string }) {
         return;
       }
       toast.success("Contest saved");
-      load();
+      load({ silent: true });
     } catch {
       toast.error("Network error");
     } finally {
@@ -115,7 +115,7 @@ export function ContestDetailClient({ contestId }: { contestId: string }) {
       return;
     }
     toast.success("Contest published");
-    load();
+    load({ silent: true });
   }
 
   async function unpublish() {
@@ -126,7 +126,7 @@ export function ContestDetailClient({ contestId }: { contestId: string }) {
       return;
     }
     toast.success("Contest moved back to draft");
-    load();
+    load({ silent: true });
   }
 
   if (loading || !contest || !form) {
@@ -271,7 +271,7 @@ export function ContestDetailClient({ contestId }: { contestId: string }) {
           contestId={contestId}
           questions={contest.contestQuestions}
           editable={editable}
-          onChanged={load}
+          onChanged={() => load({ silent: true })}
         />
         {contest.visibility === "INVITE_ONLY" ? (
           <ContestRosterPanel contestId={contestId} editable={editable} />

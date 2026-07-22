@@ -188,27 +188,39 @@ export function computeAnswerScore(
 }
 
 /** Strip admin-only fields (scores, correct answers, solutions) for participant views. */
-export function toParticipantQuestion(cq: {
-  id: string;
-  order: number;
-  sectionLabel: string | null;
-  pointsOverride: Prisma.Decimal | null;
-  hardLockSecondsOverride: number | null;
-  question: {
+export function toParticipantQuestion(
+  cq: {
     id: string;
-    type: string;
-    title: string;
-    body: string;
-    defaultPoints: Prisma.Decimal;
-    options: { id: string; text: string; order: number }[];
-    codingConfig: {
-      timeLimitSeconds: number;
-      memoryLimitMb: number;
-      allowedLanguages: string[];
-      starterCode: Prisma.JsonValue;
-    } | null;
-  };
-}) {
+    order: number;
+    sectionLabel: string | null;
+    pointsOverride: Prisma.Decimal | null;
+    hardLockSecondsOverride: number | null;
+    question: {
+      id: string;
+      type: string;
+      title: string;
+      body: string;
+      defaultPoints: Prisma.Decimal;
+      options: { id: string; text: string; order: number }[];
+      codingConfig: {
+        timeLimitSeconds: number;
+        memoryLimitMb: number;
+        allowedLanguages: string[];
+        starterCode: Prisma.JsonValue;
+        defaultHardLockSeconds: number | null;
+        testCases: { id: string; input: string; expectedOutput: string }[];
+      } | null;
+    };
+  },
+  questionStartedAt: Date | null = null,
+) {
+  const hardLockSeconds =
+    cq.hardLockSecondsOverride ?? cq.question.codingConfig?.defaultHardLockSeconds ?? null;
+  const lockDeadline =
+    hardLockSeconds != null && questionStartedAt
+      ? new Date(questionStartedAt.getTime() + hardLockSeconds * 1000)
+      : null;
+
   return {
     id: cq.id,
     order: cq.order,
@@ -229,6 +241,10 @@ export function toParticipantQuestion(cq: {
             memoryLimitMb: cq.question.codingConfig.memoryLimitMb,
             allowedLanguages: cq.question.codingConfig.allowedLanguages,
             starterCode: cq.question.codingConfig.starterCode,
+            sampleTestCases: cq.question.codingConfig.testCases,
+            hardLockSeconds,
+            hardLockDeadline: lockDeadline,
+            questionStartedAt,
           }
         : null,
     },

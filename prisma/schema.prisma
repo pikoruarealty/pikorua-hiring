@@ -341,6 +341,11 @@ model Attempt {
   // saved — independent of `attemptType`/`status`, which describe grading.
   visited         Boolean  @default(false)
   markedForReview Boolean  @default(false)
+  // Server clock, set once when the participant first opens this question
+  // (on the SUBMIT-type row only). Anchors the per-question hard-lock
+  // deadline (`questionStartedAt + hardLockSeconds`) — distinct from the
+  // contest-wide `effectiveDeadline` and from Piston's per-run `timeLimitSeconds`.
+  questionStartedAt DateTime?
 
   score           Decimal? @db.Decimal(10, 2)
   // Snapshot of points-at-attempt so later question edits don't rescore history.

@@ -54,6 +54,14 @@ services:
     image: ghcr.io/engineer-man/piston:latest
     restart: unless-stopped
     privileged: true
+    environment:
+      # Piston's own default run_timeout/run_cpu_time ceilings (3000ms each)
+      # are lower than our admin-configurable CODING_TIME_LIMIT_RANGE.max
+      # (15s) — raise both so per-question time limits above 3s don't get
+      # rejected with HTTP 400, and CPU-bound solutions (e.g. infinite loops)
+      # aren't killed early by run_cpu_time before our own run_timeout fires.
+      PISTON_RUN_TIMEOUT: "15000"
+      PISTON_RUN_CPU_TIME: "15000"
     ports:
       - "2000:2000"
     volumes:

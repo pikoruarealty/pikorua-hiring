@@ -20,6 +20,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { QuestionPalette } from "./question-palette";
+import { CodingQuestionPanel } from "./coding-question-panel";
 import type { AnswerState, ContestStateResponse } from "./types";
 
 const RESYNC_MS = 20_000;
@@ -295,7 +296,9 @@ export function ContestTakingClient({ contestId }: { contestId: string }) {
             </CardTitle>
           </CardHeader>
           <CardContent className="grid gap-4">
-            <p className="whitespace-pre-wrap text-sm">{current.question.body}</p>
+            {current.question.type !== "CODING" && (
+              <p className="whitespace-pre-wrap text-sm">{current.question.body}</p>
+            )}
 
             {current.question.type === "MCQ" && (
               <div className="grid gap-2">
@@ -328,10 +331,13 @@ export function ContestTakingClient({ contestId }: { contestId: string }) {
             )}
 
             {current.question.type === "CODING" && (
-              <p className="rounded-md border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
-                Coding questions are answered from the code editor, coming in the next phase.
-                Use Skip to move on.
-              </p>
+              <CodingQuestionPanel
+                contestId={contestId}
+                cq={current}
+                answer={a}
+                onAnswerChange={(patch) => updateLocal(current.id, patch)}
+                locked={(remaining ?? 1) <= 0}
+              />
             )}
 
             <div className="flex flex-wrap gap-2 border-t pt-3">

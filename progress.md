@@ -256,6 +256,97 @@ alice sessions):
 - `bunx tsc --noEmit` clean. `bun run build` still blocked by the
   pre-existing `/_global-error` issue (unrelated, see `memory.md`).
 
-## Phase 4 — Coding flow: Monaco + BullMQ + Piston + rate limiting ⏳ (next)
+## Phase 4 — Coding flow: Monaco + BullMQ + Piston + rate limiting ✅ (complete)
 
-Not started.
+**Goal:** participants can write/run/submit code for CODING questions against
+a self-hosted Piston sandbox, with live pass/fail streaming, a 1-per-5s
+rate limit, a server-authoritative per-question hard-lock timer, and
+timeout/compile-error handling that never leaks hidden test-case data.
+
+Delivered:
+
+- **Schema:** `Attempt.questionStartedAt` (migration
+  `attempt_question_started_at`) — anchors the per-question hard-lock
+  independently of the contest-wide deadline. The same unique
+  `(contestParticipantId, contestQuestionId, SUBMIT)` row MCQ/TEXT already use
+  as their "answer" row is reused for CODING to carry this timestamp, avoiding
+  a new model.
+- **Piston runtimes:** `scripts/piston-install.ts` (`bun run piston:install`)
+  installs `gcc@10.2.0` (covers both `c` and `c++` — Piston has no separate
+  c/c++ package, both languages alias to the single `gcc` package),
+  `java@15.0.2`, `python@3.12.0`. `src/lib/languages.ts` gained
+  `PISTON_RUNTIME`/`PISTON_SOURCE_FILENAME` maps. **Java submissions must name
+  their public class `Main`** (matches `Main.java`) — not yet surfaced as a UI
+  hint, flag for Phase 7 polish.
+- **Execution lib** (`src/lib/execution.ts`): sequential per-test-case Piston
+  calls (`gradeSubmission`), compile-error short-circuiting (skips remaining
+  cases without extra Piston calls once one fails to compile), output
+  normalization (CRLF→LF, trim) + truncation (`env.MAX_OUTPUT_BYTES`),
+  exact-match grading, final status aggregation (PASSED/FAILED/PARTIAL/ERROR/
+  TIME_LIMIT_EXCEEDED via `signal === "SIGKILL"`).
+- **Worker** (`src/worker/index.ts`, rewritten from the Phase 0 stub): real
+  processor — RUN attempts test sample cases only and never touch `score`;
+  SUBMIT attempts test every case and write `score`/`maxPossibleScore`.
+  Publishes `status`/`test-result`/`final` events to Redis pub/sub
+  (`exec:${attemptId}`) as grading proceeds, live per test case — this is
+  what makes Run "live pass/fail" possible without a batch Piston API.
+- **API routes** (`src/app/api/participant/contests/[id]/questions/[cqId]/`):
+  `visit` (starts the hard-lock clock, idempotent), `run` / `submit` (full
+  guard chain: auth → CSRF → contest-not-expired → hard-lock check → 1-per-5s
+  rate limit → enqueue `code-execution` job), `stream` (SSE — subscribes to
+  the Redis channel, relays events, 15s heartbeats, sends already-persisted
+  state directly if the attempt is already terminal).
+- **Redaction:** `src/lib/execution-events.ts`'s `toParticipantTestCaseResult`
+  strips `actualOutput`/`error` for non-sample test cases — applied
+  consistently in both the worker's live-publish path and the contest-state
+  GET route's persisted-result serialization, so hidden test data never
+  reaches the participant via either channel.
+- **Monaco editor** (`src/components/participant/monaco-editor.tsx`):
+  IntelliSense/autocomplete/suggestions/hover/codeLens/context-menu all
+  disabled per `initial-prompt.md`. **Gotcha:** several Monaco option types
+  are string-literal unions in this version, not booleans —
+  `hover.enabled` is `"on"|"off"|"onKeyboardModifier"`, not `boolean`; check
+  `node_modules/monaco-editor/esm/vs/editor/editor.api.d.ts` before assuming
+  a `{enabled: false}` shape works.
+- **UI:** `coding-question-panel.tsx` — language picker, hard-lock countdown,
+  Monaco editor, Run/Submit buttons wired to the routes above + `EventSource`
+  subscription, live test-case result rows, compile-error panel, final
+  status/score badge. Wired into `contest-taking-client.tsx` replacing the
+  Phase 3 CODING placeholder.
+- **Piston container config fix (found during E2E, not obvious from docs):**
+  Piston's *own* defaults cap `run_timeout` at 3000ms **and**, separately,
+  `run_cpu_time` at 3000ms — the second one still killed CPU-bound code
+  (e.g. an infinite loop) at ~3s even after raising `run_timeout`, silently
+  ignoring our per-question `timeLimitSeconds`. Fixed by setting both
+  `PISTON_RUN_TIMEOUT` and `PISTON_RUN_CPU_TIME` env vars on the `piston`
+  service in `docker-compose.yml` to 15000 (matching
+  `CODING_TIME_LIMIT_RANGE.max` from Phase 2). See `memory.md`.
+
+**Checkpoint verified** (scripted curl E2E against `bun run dev` + `bun run
+worker`, using a throwaway fixture contest deleted after testing):
+
+- **Run, live pass/fail:** correct Python solution → SSE emitted
+  `status:RUNNING` → per-sample-case `test-result` events → `final:PASSED`;
+  DB row confirms `score: null` (Run never scores). ✅
+- **Rate limit:** two Run calls fired back-to-back → second got 429 ("wait
+  5s"); spaced >5s apart → both 200. ✅
+- **Hard-lock:** `visit` with a 3s override, waited 5s, Run → 409 ("time
+  limit has expired"); a fresh `visit` resets the clock (but only if
+  `questionStartedAt` is cleared — normally it's set once and never
+  overwritten). ✅
+- **Graded Submit:** correct solution → all 4 test cases (2 sample + 2
+  hidden) run, `score: 10`/`maxPossibleScore: 10` persisted; participant-facing
+  GET and the live SSE stream both showed `actualOutput` only for the sample
+  cases, hidden cases redacted to pass/fail + timing only. ✅
+- **TIME_LIMIT_EXCEEDED:** infinite-loop Python → both test cases timed out
+  at ~5.1s (matching `timeLimitSeconds: 5`, once the Piston `run_cpu_time` fix
+  above was applied) → `final:TIME_LIMIT_EXCEEDED`, `score: 0`. ✅
+- **Compile error:** invalid C → single Piston call, remaining cases
+  skipped locally (no extra Piston round-trip), `final:ERROR` with the
+  compiler's stderr as `compileError`; a corrected valid C solution then
+  compiled and passed. ✅
+- `bunx tsc --noEmit` clean. Lint: no new errors introduced by Phase 4 files
+  beyond the project-wide pre-existing `react-hooks/set-state-in-effect`
+  lint failures (present since before this phase, in files this phase didn't
+  touch — e.g. `theme-toggle.tsx`, `participants-client.tsx`; not fixed here,
+  out of scope).

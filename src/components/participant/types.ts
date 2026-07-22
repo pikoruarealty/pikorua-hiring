@@ -27,8 +27,36 @@ export interface ParticipantQuestion {
       timeLimitSeconds: number;
       memoryLimitMb: number;
       allowedLanguages: string[];
+      starterCode: Record<string, string> | null;
+      sampleTestCases: { id: string; input: string; expectedOutput: string }[];
+      hardLockSeconds: number | null;
+      hardLockDeadline: string | null;
+      questionStartedAt: string | null;
     } | null;
   };
+}
+
+export type TestCaseResultView = {
+  testCaseId: string;
+  isSample: boolean;
+  passed: boolean;
+  executionTimeMs: number;
+  timedOut: boolean;
+  actualOutput?: string;
+  error?: string | null;
+};
+
+export interface CodingRunState {
+  language: string;
+  code: string | null;
+  status: string;
+  totalExecutionTimeMs: number | null;
+  results: TestCaseResultView[];
+}
+
+export interface CodingSubmitState extends CodingRunState {
+  score: number | null;
+  maxScore: number | null;
 }
 
 export interface AnswerState {
@@ -36,6 +64,8 @@ export interface AnswerState {
   textAnswer: string | null;
   visited: boolean;
   markedForReview: boolean;
+  questionStartedAt?: string | null;
+  coding?: { run: CodingRunState | null; submit: CodingSubmitState | null } | null;
 }
 
 export interface ContestStateResponse {
@@ -65,7 +95,11 @@ export type PaletteStatus =
 
 export function hasAnswer(a: AnswerState | undefined): boolean {
   if (!a) return false;
-  return a.selectedOptionIds.length > 0 || !!a.textAnswer?.trim();
+  return (
+    a.selectedOptionIds.length > 0 ||
+    !!a.textAnswer?.trim() ||
+    !!a.coding?.submit?.code?.trim()
+  );
 }
 
 export function paletteStatus(a: AnswerState | undefined): PaletteStatus {
