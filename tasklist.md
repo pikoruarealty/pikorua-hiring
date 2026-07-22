@@ -78,6 +78,11 @@ Granular checklist tracking the approved phase plan. `[x]` done, `[ ]` pending.
       bricked past-start empty contests — see Phase 2 tasklist entry) and two
       real shadcn component bugs (Dialog width override, Select popper
       position) reported during manual testing
+- [x] Verified in a real browser via Playwright (`e2e/phase3-taking.spec.ts`,
+      11/11 steps): checkbox MCQ answers with instant autosave, debounced
+      TEXT autosave, palette navigation preserving answers, reload persisting
+      server-saved state, the submit-confirmation dialog, and the post-submit
+      dashboard "Submitted" state blocking re-entry.
 
 ## Phase 4 — Coding flow: Monaco + BullMQ + Piston + rate limiting
 - [x] Monaco (IntelliSense/autocomplete disabled) — `CodeEditor` in
@@ -102,6 +107,14 @@ Granular checklist tracking the approved phase plan. `[x]` done, `[ ]` pending.
       persistence during editing was already correct. Admin-side visibility
       into coding results deferred to a future phase per direct instruction
       — see `memory.md`
+- [x] Verified in a real browser via Playwright (`e2e/phase4-coding.spec.ts`,
+      7/7 steps): typed a correct Python solution into the actual Monaco
+      editor, watched live SSE-streamed sample-test results render on Run,
+      graded hidden tests on Submit, and confirmed the hard-lock countdown
+      disables Run/Submit once it expires. Surfaced and fixed two real,
+      production-affecting bugs along the way — see `memory.md`
+      ("RESOLVED: coding panel invisible" and "RESOLVED: live Run/Submit
+      results wiped on final SSE event").
 
 ## Phase 5 — Security & proctoring hardening
 - [x] Fullscreen + visibility/blur/focus + devtools/right-click/copy-paste/print
@@ -147,9 +160,12 @@ Granular checklist tracking the approved phase plan. `[x]` done, `[ ]` pending.
       `DEVTOOLS_ATTEMPT` → `{"action":"AUTO_SUBMITTED","status":"LOCKED_OUT"}`,
       then a third event confirmed idempotent (`"action":"NONE"`, status
       stays `LOCKED_OUT`). `bunx tsc --noEmit` and `bun run lint` both clean.
-      Not visually tested (no browser in this environment) — fullscreen
-      request on Start, the warning banner, devtools-shortcut interception,
-      and drag/tab UI should be checked in a real browser.
+- [x] Verified in a real browser via Playwright (`e2e/phase5-proctoring.spec.ts`,
+      5/5 steps): a genuine `document.exitFullscreen()` (not a synthetic
+      event — see `memory.md`) triggers the strike-1 warning banner with the
+      exact copy, an F12 keypress after the companion-suppression window
+      triggers strike-2 auto-submit + the "Contest ended — proctoring
+      violation" screen, and the admin leaderboard reflects `LOCKED_OUT`.
 
 ## Phase 6 — Results / leaderboard / shortlisting / export
 - [x] Leaderboard with tie-break (submission time, then execution time) —
@@ -180,11 +196,22 @@ Granular checklist tracking the approved phase plan. `[x]` done, `[ ]` pending.
       select/export/`downloadBlob()` conventions.
 - [x] `bunx tsc --noEmit`, `bun run lint` (0 errors — pre-existing warnings
       in unrelated files untouched), and `bun run build` all clean.
-- [ ] Checkpoint: 3+ participant contest, tie broken correctly, shortlist —
-      not yet manually verified in a browser (no browser in this
-      environment); needs a live run with a real tie to confirm rank
-      display, exports opening correctly, and shortlisted participants
-      landing on the target roster as `INVITED`.
+- [x] Checkpoint: 3+ participant contest, tie broken correctly, shortlist —
+      verified in a real browser via Playwright (`e2e/phase6-results.spec.ts`,
+      9/9 steps). Tie-break nuance: `compareForRanking` only treats rows as a
+      literal tie if score AND submittedAt-to-the-millisecond AND
+      tieBreakExecutionTimeMs all match exactly, which is unreachable via
+      independently driven participant sessions. The test instead drives 3
+      participants to an equal `totalScore` by answering identically, then
+      asserts they're ranked in the correct relative order by earliest
+      `submittedAt` (the real tie-break rule) rather than asserting a shared
+      literal rank number. Also verified: the admin leaderboard visually
+      shows the 3 tied rows in submission order, all three export formats
+      (CSV/XLSX/PDF) trigger real browser downloads with correct filenames,
+      shortlisting a selected participant lands them as `INVITED` on the
+      target contest's roster, and the participant drilldown shows
+      hidden-test-case output (actual output + `print(a + b)` source) for a
+      coding submission.
 
 ## Phase 7 — UI polish (shadcn, design-taste-frontend skill)
 - [ ] Design tokens, responsive layouts, empty/loading/error states

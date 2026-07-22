@@ -186,7 +186,13 @@ export function CodingQuestionPanel({
         setLiveResults((prev) => [...(prev ?? []), data.result]);
       } else if (data.type === "final") {
         setLiveFinal({ status: data.status, score: data.score, maxScore: data.maxScore, compileError: data.compileError });
-        setLiveResults(data.results ?? liveResults ?? []);
+        // The worker's own "final" event never includes `results` (test cases
+        // stream incrementally via "test-result" events instead); only the
+        // "already terminal at subscribe time" server-side final message
+        // populates it. Only overwrite when present, so we don't clobber the
+        // results already accumulated via "test-result" events with a stale
+        // closure value.
+        if (data.results) setLiveResults(data.results);
         setActiveTab("result");
         if (kind === "run") setRunning(false);
         else setSubmitting(false);
@@ -273,6 +279,11 @@ export function CodingQuestionPanel({
           </SelectContent>
         </Select>
         <div className="flex items-center gap-3 text-xs text-muted-foreground">
+          {language === "java" && (
+            <span className="text-amber-600 dark:text-amber-400">
+              Your public class must be named <code className="font-mono">Main</code>
+            </span>
+          )}
           <span>
             Limits: {coding.timeLimitSeconds}s / {coding.memoryLimitMb}MB per test
           </span>

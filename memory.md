@@ -502,7 +502,95 @@ rationale lives in the approved plan; this is the "don't trip over these" list.
   (`src/components/contests/`) follow the same select/export/
   `downloadBlob()` pattern already established in
   `participants-client.tsx` (Phase 1) rather than inventing a new one.
-- Not yet manually browser-tested (no browser in this environment,
-  consistent with every prior phase) — the tasklist checkpoint (3+
-  participant contest with a real tie, exports opening correctly,
-  shortlist landing on the target roster) still needs a live run.
+- Browser-tested via Playwright (`e2e/phase6-results.spec.ts`) — see the
+  "Real-browser E2E pass" section below for what this surfaced.
+
+## Real-browser E2E pass (Playwright, Phases 3–6) — bugs found and fixed
+
+Phases 3–6 had only ever been curl/API-tested. A Playwright suite
+(`e2e/phase{3,4,5,6}-*.spec.ts`, run via `bunx tsx e2e/<file>.spec.ts` — plain
+`playwright` devDependency, no `@playwright/test` runner, hand-rolled
+`step()`/`assert()`/`summarize()` helpers in `e2e/lib.ts`) drove all four
+phases through a real Chromium browser and found real bugs beyond what curl
+testing could ever catch:
+
+- **RESOLVED: coding panel invisible in any real browser** —
+  `src/components/ui/resizable.tsx`'s `ResizableHandle` (shadcn's stock
+  template over `react-resizable-panels`) had its `aria-orientation` CSS
+  variants inverted. Read the library's built JS directly and confirmed:
+  `Group`'s `orientation` prop describes panel LAYOUT direction, but the
+  `Separator` (handle)'s own `aria-orientation` attribute is computed as the
+  OPPOSITE value — a horizontal (side-by-side) panel layout produces
+  `aria-orientation="vertical"` on the handle (correctly describing the
+  divider's own vertical visual line). shadcn's template assumed the other
+  convention, so the handle rendered at `w-full`, collapsing BOTH the
+  description panel and the Monaco editor to 0px width — the entire coding
+  question UI was invisible in every real browser, not just Playwright, and
+  no amount of curl testing would ever have caught it. Fixed by swapping the
+  `aria-[orientation=vertical]:` selectors to `aria-[orientation=horizontal]:`
+  in the component. Verified via a debug script: panel widths went from
+  `{0, 0, 594}` to `{225, 368, 1}`.
+- **RESOLVED: live Run/Submit results wiped to empty right when grading
+  finishes** — `coding-question-panel.tsx`'s SSE `subscribe()` handler had a
+  stale-closure bug in its `"final"` event branch:
+  `setLiveResults(data.results ?? liveResults ?? [])`. The WORKER's own
+  `"final"` pub/sub event (`src/lib/execution-events.ts`) never includes a
+  `results` field by design (test cases stream incrementally via separate
+  `"test-result"` events instead) — only the SSE route's own synthesized
+  final event (sent when the attempt is already terminal at subscribe time)
+  includes the full array from the DB. So on the live-grading path,
+  `data.results` was always `undefined`, falling back to the closured
+  `liveResults` variable — which was captured at the moment `subscribe()`
+  was called, i.e. immediately after `setLiveResults([])` reset it, and
+  never updates for the life of that `EventSource` (event listeners don't
+  get fresh closures on re-render). Net effect: every Run/Submit's results
+  got silently wiped to `[]` right as grading finished, unless the request
+  happened to race ahead of the DB write (rare, which is why this was
+  intermittent under curl-style testing and easy to miss). Fixed by only
+  calling `setLiveResults(data.results)` when `data.results` is actually
+  present, leaving the already-accumulated results untouched otherwise.
+- **Test-only fixes** (no app bug, but worth remembering for future specs):
+  - Login form's password field has no accessible label — use
+    `page.locator("#password")`, not `getByLabel("Password")`.
+  - shadcn's `CardTitle` renders a plain `<div>`, not a heading — use
+    `getByText(...)`, not `getByRole("heading", ...)` for terminal-state
+    banners like "Submitted" / "Contest ended — proctoring violation".
+  - The participant dashboard's enabled row actions render as
+    `<Button asChild><Link>` → an `<a role="link">`, not a `<button>`.
+  - Typing into Monaco via `page.keyboard.type()` needs `delay: 40`+ — a
+    5ms delay races Monaco's model update and autoClosing-bracket logic,
+    dropping/transposing characters near auto-closed brackets.
+  - Run and Submit share one rate-limit key (`exec:${user.id}`,
+    `RATE_LIMIT_RUN_SUBMIT_SECONDS` = 5s default) — a test hitting Submit
+    right after Run gets a legitimate 429; wait out the window instead of
+    treating it as a bug.
+  - **Simulating "fullscreen exit" for proctoring tests must call the real
+    `document.exitFullscreen()`**, not `dispatchEvent(new
+    Event("fullscreenchange"))`. Starting a contest auto-requests
+    fullscreen (`contest-taking-client.tsx`), and headless Chromium
+    actually grants it, so `document.fullscreenElement` is already set. The
+    app's handler correctly guards on `if (document.fullscreenElement)
+    return` — a synthetic event that doesn't change that state is
+    correctly a no-op, not a bug.
+  - The admin drilldown's coding test-case table renders the type column as
+    plain `"Sample"`/`"Hidden"` (not `"Sample test"`/`"Hidden test"` — that
+    fuller phrasing is only used in the participant-facing coding panel).
+  - The participant answer-autosave PATCH route requires `markedForReview`
+    (not optional in its zod schema) even though the e2e helper's TS type
+    marked it optional — always pass it explicitly from test code.
+  - The `/api/admin/contests/[id]/results/export` route is rate-limited to
+    5 calls per 60s per admin. Repeated manual/debug script runs against
+    the same seeded admin account can exhaust this budget right before a
+    real test's own export step, producing a spurious `waitForEvent
+    "download"` timeout that looks like a client bug but is just quota
+    exhaustion — wait out the window (or check `redis-cli --scan --pattern
+    "rl:*"` is empty) before concluding it's a real bug.
+- **Stale worker/Redis connection after a Docker restart**: if
+  `docker compose` restarts (containers show a low uptime relative to how
+  long the worker process has been running), the long-lived `bun run
+  worker` process's BullMQ consumer connection can end up stuck — jobs get
+  queued (`executionQueue.add`) but never picked up, and Run/Submit hang
+  until the SSE `waitFor` times out with no error anywhere. Not an app bug;
+  restarting the worker process resolves it. Worth checking
+  `docker ps --format "{{.Names}}\t{{.Status}}"` uptime vs. worker process
+  age whenever Run/Submit inexplicably stalls with zero results.
