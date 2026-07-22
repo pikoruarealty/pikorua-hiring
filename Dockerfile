@@ -28,14 +28,17 @@ RUN bun run build
 
 # --- web ---
 FROM base AS web
-ENV NODE_ENV=production
+# Host port 3000 is already taken by another app on the VM this deploys to —
+# `next start` honors PORT natively, no CMD argument-passing needed.
+ENV NODE_ENV=production \
+    PORT=3001
 COPY --from=build /app/.next ./.next
 COPY --from=build /app/public ./public
 COPY --from=build /app/src/generated ./src/generated
 COPY --from=build /app/next.config.ts ./
 COPY --from=build /app/prisma ./prisma
 COPY --from=build /app/prisma.config.ts ./
-EXPOSE 3000
+EXPOSE 3001
 CMD ["bun", "run", "start"]
 
 # --- worker ---

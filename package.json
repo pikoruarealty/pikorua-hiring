@@ -9,6 +9,7 @@
     "lint": "eslint",
     "worker": "bun run src/worker/index.ts",
     "db:seed": "bun run prisma/seed.ts",
+    "db:seed:admin-only": "bun run prisma/seed-admin.ts",
     "db:studio": "prisma studio",
     "db:migrate": "npx prisma migrate dev",
     "db:generate": "prisma generate",

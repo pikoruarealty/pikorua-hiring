@@ -91,7 +91,8 @@ services:
       # since env_file/environment always wins over an image's baked-in ENV.
       NODE_ENV: "production"
     ports:
-      - "3000:3000"
+      # Host 3000 is already in use by another app on this VM.
+      - "3001:3001"
     depends_on:
       postgres:
         condition: service_healthy
