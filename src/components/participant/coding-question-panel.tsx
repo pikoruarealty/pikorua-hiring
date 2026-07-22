@@ -79,7 +79,7 @@ function ResultCard({ r, expectedOutput }: { r: TestCaseResultView; expectedOutp
         ) : (
           <XCircle className="size-4 shrink-0 text-destructive" />
         )}
-        <span className="font-medium">{r.isSample ? "Sample test" : "Hidden test"}</span>
+        <span className="font-medium">Sample test</span>
         {r.timedOut && <Badge variant="destructive">Time limit exceeded</Badge>}
         <span className="ml-auto text-xs text-muted-foreground">{r.executionTimeMs}ms</span>
       </div>
@@ -99,11 +99,34 @@ function ResultCard({ r, expectedOutput }: { r: TestCaseResultView; expectedOutp
         </div>
       )}
 
-      {r.isSample && r.error && (
+      {r.error && (
         <pre className="overflow-x-auto whitespace-pre-wrap rounded bg-destructive/10 p-2 font-mono text-xs text-destructive">
           {r.error}
         </pre>
       )}
+    </div>
+  );
+}
+
+/** Hidden/private test cases never show a diff or per-case card — only an aggregate summary. */
+function HiddenResultsSummary({ results }: { results: TestCaseResultView[] }) {
+  const failed = results.filter((r) => !r.passed).length;
+  const allPassed = failed === 0;
+
+  return (
+    <div className="grid gap-2 rounded-md border p-3 text-sm">
+      <div className="flex items-center gap-2">
+        {allPassed ? (
+          <CheckCircle2 className="size-4 shrink-0 text-emerald-600" />
+        ) : (
+          <XCircle className="size-4 shrink-0 text-destructive" />
+        )}
+        <span className="font-medium">
+          {allPassed
+            ? `All ${results.length} private test case${results.length === 1 ? "" : "s"} passed`
+            : "Some private test cases have failed"}
+        </span>
+      </div>
     </div>
   );
 }
@@ -254,6 +277,8 @@ export function CodingQuestionPanel({
   }
 
   const results = liveResults ?? answer.coding?.submit?.results ?? answer.coding?.run?.results ?? [];
+  const sampleResults = results.filter((r) => r.isSample);
+  const hiddenResults = results.filter((r) => !r.isSample);
   const disabled = questionLocked || running || submitting;
 
   return (
@@ -375,13 +400,14 @@ export function CodingQuestionPanel({
                       {liveFinal.compileError}
                     </pre>
                   )}
-                  {results.map((r, i) => (
+                  {sampleResults.map((r, i) => (
                     <ResultCard
                       key={r.testCaseId ?? i}
                       r={r}
-                      expectedOutput={r.isSample ? expectedByTestCaseId[r.testCaseId] : undefined}
+                      expectedOutput={expectedByTestCaseId[r.testCaseId]}
                     />
                   ))}
+                  {hiddenResults.length > 0 && <HiddenResultsSummary results={hiddenResults} />}
                 </div>
               )}
             </TabsContent>

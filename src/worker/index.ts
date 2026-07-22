@@ -61,11 +61,11 @@ const worker = new Worker<ExecutionJobData>(
     const channel = executionChannel(attemptId);
     await publisher.publish(channel, JSON.stringify({ type: "status", status: "RUNNING" }));
 
-    // Run: public (sample) test cases only. Submit: every test case.
-    const relevantTestCases = codingConfig.testCases.filter((tc) =>
-      attempt.attemptType === AttemptType.RUN ? tc.isSample : true,
-    );
-    const testCases: TestCaseSpec[] = relevantTestCases.map((tc) => ({
+    // Both Run and Submit execute every test case (sample + hidden); only the
+    // participant-facing presentation differs (hidden results are shown as an
+    // aggregate pass/fail summary, never individually) and Run's score is
+    // never persisted/reported below.
+    const testCases: TestCaseSpec[] = codingConfig.testCases.map((tc) => ({
       id: tc.id,
       input: tc.input,
       expectedOutput: tc.expectedOutput,

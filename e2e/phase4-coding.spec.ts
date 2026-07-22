@@ -69,7 +69,7 @@ async function main() {
       await page.locator(".monaco-editor .view-line", { hasText: "print(a + b)" }).waitFor();
     });
 
-    await step('"Run" streams live SSE results into the Result tab', async () => {
+    await step('"Run" streams live SSE results into the Result tab, incl. hidden tests aggregate', async () => {
       await page.getByRole("button", { name: "Run", exact: true }).click();
       await page
         .getByRole("tab", { name: /Result/ })
@@ -77,6 +77,10 @@ async function main() {
         .waitFor({ timeout: 30_000 });
       const sampleCards = page.locator("text=Sample test");
       assert((await sampleCards.count()) >= 1, "expected at least one sample test result card");
+      // Run now executes hidden test cases too, but only shows an aggregate
+      // summary for them (never a per-case card or diff).
+      await page.getByText(/All \d+ private test cases? passed/).waitFor();
+      assert((await page.locator("text=Hidden test").count()) === 0, "hidden tests must not render per-case cards");
     });
 
     await step('"Submit code" grades against hidden tests too', async () => {
@@ -89,8 +93,7 @@ async function main() {
         .getByRole("tab", { name: /Result/ })
         .locator("text=/PASSED|FAILED|COMPILE_ERROR/")
         .waitFor({ timeout: 30_000 });
-      const hiddenCards = page.locator("text=Hidden test");
-      assert((await hiddenCards.count()) >= 1, "expected hidden test result cards after submit");
+      await page.getByText(/All \d+ private test cases? passed/).waitFor();
     });
 
     await step("hard-lock countdown eventually disables Run/Submit", async () => {

@@ -594,3 +594,27 @@ testing could ever catch:
   restarting the worker process resolves it. Worth checking
   `docker ps --format "{{.Names}}\t{{.Status}}"` uptime vs. worker process
   age whenever Run/Submit inexplicably stalls with zero results.
+
+## Coding: Run now grades hidden test cases too, shown as aggregate only (2026-07-22)
+
+Per user request, `src/worker/index.ts` no longer filters test cases by
+`AttemptType.RUN` (used to run only `isSample` cases) — Run and Submit both
+now execute every test case. Run's score/maxPossibleScore are still never
+persisted (kept `null`/`0` in the "final" event), only the *scope of
+execution* changed, not scoring.
+
+Participant-facing display (`coding-question-panel.tsx`) was changed to
+match: sample test results still render one `ResultCard` each with full
+diff/expected-output, but hidden/private results are no longer rendered as
+individual "Hidden test" cards — they're collapsed into a single
+`HiddenResultsSummary` line ("All N private test cases passed" / "Some
+private test cases have failed"), with no diff or per-case detail ever
+shown. This applies to both Run and Submit results in the participant view.
+
+The **admin** drilldown (`participant-drilldown-dialog.tsx`) is a different,
+unaffected component — it still legitimately shows full hidden test-case
+detail (input/output) to admins, verified by `e2e/phase6-results.spec.ts`.
+
+`e2e/phase4-coding.spec.ts` updated: the Run step now asserts the hidden
+aggregate summary text appears and that zero "Hidden test" per-case cards
+render (for both Run and Submit).
