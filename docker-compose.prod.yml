@@ -1,0 +1,20 @@
+# Override for the VM: use prebuilt GHCR images instead of building locally.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml --profile app pull
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml --profile app up -d
+#
+# `build:` stays defined in the base file (needed for local dev); as long as
+# this override supplies `image:` and we never pass `--build`, `up`/`pull`
+# just use the named GHCR image instead of building from the local Dockerfile.
+#
+# Always `:latest` — deploys are re-tagged in place on every push to main, and
+# the systemd unit (ops/hiring-app.service) has no way to inject a per-deploy
+# env var into `docker compose up`, so there's no dynamic tag to read here.
+# Rollback = `docker compose pull ... web@sha256:<digest>` by hand, or re-run
+# the GitHub Actions "Deploy" workflow from an older commit.
+services:
+  web:
+    image: ghcr.io/pikoruarealty/pikorua-hiring-web:latest
+
+  worker:
+    image: ghcr.io/pikoruarealty/pikorua-hiring-worker:latest
