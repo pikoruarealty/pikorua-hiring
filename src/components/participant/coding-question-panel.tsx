@@ -13,8 +13,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { CodeEditor } from "./monaco-editor";
 import type { AnswerState, ParticipantQuestion, TestCaseResultView } from "./types";
 
@@ -153,7 +151,7 @@ export function CodingQuestionPanel({
 
   const [language, setLanguage] = useState(answer.coding?.submit?.language ?? allowedLanguages[0]);
   const [code, setCode] = useState(
-    answer.coding?.submit?.code ?? answer.coding?.run?.code ?? starter[language] ?? "",
+    answer.coding?.localCode ?? answer.coding?.submit?.code ?? answer.coding?.run?.code ?? starter[language] ?? "",
   );
   const [running, setRunning] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -165,7 +163,21 @@ export function CodingQuestionPanel({
     compileError?: string | null;
   } | null>(null);
   const [remainingLock, setRemainingLock] = useState<number | null>(null);
-  const [activeTab, setActiveTab] = useState("description");
+
+  const lastSubmittedCode = answer.coding?.submit?.code ?? "";
+  const hasEverSubmitted = !!lastSubmittedCode;
+  const isCodeDirty = code.trim() !== lastSubmittedCode.trim() && (hasEverSubmitted || code.trim() !== "");
+
+  const handleCodeChange = (newCode: string) => {
+    setCode(newCode);
+    onAnswerChange({
+      coding: {
+        run: answer.coding?.run ?? null,
+        submit: answer.coding?.submit ?? null,
+        localCode: newCode,
+      },
+    });
+  };
 
   const esRef = useRef<EventSource | null>(null);
 
@@ -216,7 +228,6 @@ export function CodingQuestionPanel({
         // results already accumulated via "test-result" events with a stale
         // closure value.
         if (data.results) setLiveResults(data.results);
-        setActiveTab("result");
         if (kind === "run") setRunning(false);
         else setSubmitting(false);
         es.close();
@@ -267,7 +278,22 @@ export function CodingQuestionPanel({
         setSubmitting(false);
         return;
       }
-      onAnswerChange({ visited: true });
+      onAnswerChange({
+        visited: true,
+        coding: {
+          run: answer.coding?.run ?? null,
+          submit: {
+            language,
+            code,
+            status: "PENDING",
+            totalExecutionTimeMs: null,
+            results: [],
+            score: null,
+            maxScore: null,
+          },
+          localCode: code,
+        },
+      });
       subscribe(body.attemptId, "submit");
       toast.success("Code submitted for grading");
     } catch {
@@ -282,154 +308,193 @@ export function CodingQuestionPanel({
   const disabled = questionLocked || running || submitting;
 
   return (
-    <div className="grid gap-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <Select
-          value={language}
-          onValueChange={(v) => {
-            setLanguage(v);
-            if (!code.trim()) setCode(starter[v] ?? "");
-          }}
-          disabled={disabled}
-        >
-          <SelectTrigger className="w-40">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {allowedLanguages.map((l) => (
-              <SelectItem key={l} value={l}>
-                {LANGUAGE_LABELS[l] ?? l}
-              </SelectItem>
+    <div className="space-y-6">
+      {/* 1. Question Details */}
+      <div className="space-y-2 border-b pb-4">
+        <h2 className="text-xl font-bold text-foreground">{cq.question.title}</h2>
+        <p className="whitespace-pre-wrap text-sm text-muted-foreground">{cq.question.body}</p>
+      </div>
+
+      {/* 2. Read-only Sample Test Cases */}
+      <div className="space-y-3">
+        <h3 className="text-sm font-semibold text-foreground">Sample Test Cases</h3>
+        {coding.sampleTestCases.length === 0 ? (
+          <p className="text-xs text-muted-foreground bg-muted/10 border rounded-md p-3">
+            No sample test cases provided.
+          </p>
+        ) : (
+          <div className="grid gap-3">
+            {coding.sampleTestCases.map((tc, i) => (
+              <div key={tc.id} className="grid gap-2 rounded-md border p-3 text-xs bg-muted/20">
+                <span className="font-semibold text-foreground">Sample {i + 1}</span>
+                <div className="grid gap-2 sm:grid-cols-2 mt-1">
+                  <div>
+                    <div className="font-medium text-muted-foreground mb-1">Input</div>
+                    <pre className="overflow-x-auto whitespace-pre-wrap rounded border bg-background p-2 font-mono">
+                      {tc.input || "(empty)"}
+                    </pre>
+                  </div>
+                  <div>
+                    <div className="font-medium text-muted-foreground mb-1">Expected Output</div>
+                    <pre className="overflow-x-auto whitespace-pre-wrap rounded border bg-background p-2 font-mono">
+                      {tc.expectedOutput}
+                    </pre>
+                  </div>
+                </div>
+              </div>
             ))}
-          </SelectContent>
-        </Select>
-        <div className="flex items-center gap-3 text-xs text-muted-foreground">
-          {language === "java" && (
-            <span className="text-amber-600 dark:text-amber-400">
-              Your public class must be named <code className="font-mono">Main</code>
+          </div>
+        )}
+      </div>
+
+      {/* 3. Language Picker & Monaco Code Editor */}
+      <div className="space-y-3 border-t pt-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-medium">Language:</span>
+            <Select
+              value={language}
+              onValueChange={(v) => {
+                setLanguage(v);
+                const nextCode = !code.trim() ? (starter[v] ?? "") : code;
+                if (!code.trim()) setCode(nextCode);
+                onAnswerChange({
+                  coding: {
+                    run: answer.coding?.run ?? null,
+                    submit: answer.coding?.submit ?? null,
+                    localCode: nextCode,
+                  },
+                });
+              }}
+              disabled={disabled}
+            >
+              <SelectTrigger className="w-40">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {allowedLanguages.map((l) => (
+                  <SelectItem key={l} value={l}>
+                    {LANGUAGE_LABELS[l] ?? l}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex items-center gap-3 text-xs text-muted-foreground">
+            {language === "java" && (
+              <span className="text-amber-600 dark:text-amber-400 font-medium">
+                Your public class must be named <code className="font-mono">Main</code>
+              </span>
+            )}
+            <span>
+              Limits: {coding.timeLimitSeconds}s / {coding.memoryLimitMb}MB per test
             </span>
-          )}
-          <span>
-            Limits: {coding.timeLimitSeconds}s / {coding.memoryLimitMb}MB per test
-          </span>
-          {remainingLock !== null && (
-            <span className={remainingLock < 30 ? "font-mono text-destructive" : "font-mono"}>
-              Locks in {fmtClock(remainingLock)}
-            </span>
-          )}
+            {remainingLock !== null && (
+              <span className={remainingLock < 30 ? "font-mono text-destructive font-semibold" : "font-mono"}>
+                Locks in {fmtClock(remainingLock)}
+              </span>
+            )}
+          </div>
+        </div>
+
+        {questionLocked && (
+          <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            This question&apos;s time limit has expired — Run/Submit are disabled.
+          </p>
+        )}
+
+        {/* Warning/Success Status Banner */}
+        {!questionLocked && (
+          isCodeDirty ? (
+            <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400 flex items-center gap-2">
+              <span className="font-semibold">⚠️ Unsubmitted changes:</span>
+              <span>Your current code is different from your last submitted version. Click &quot;Submit code&quot; below to save and grade it.</span>
+            </div>
+          ) : hasEverSubmitted ? (
+            <div className="rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-700 dark:text-emerald-400 flex items-center gap-2">
+              <span className="font-semibold">✅ Code submitted:</span>
+              <span>Your latest code matches the submitted version and is saved for grading.</span>
+            </div>
+          ) : (
+            <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400 flex items-center gap-2">
+              <span className="font-semibold">⚠️ Code not submitted:</span>
+              <span>You have not submitted a solution for this question yet. Click &quot;Submit code&quot; below when ready.</span>
+            </div>
+          )
+        )}
+
+        <div className="rounded-md border overflow-hidden h-[450px]">
+          <CodeEditor language={language} value={code} onChange={handleCodeChange} readOnly={questionLocked} />
         </div>
       </div>
 
-      {questionLocked && (
-        <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-          This question&apos;s time limit has expired — Run/Submit are disabled.
-        </p>
-      )}
+      {/* 4. Action Buttons (Run and Submit) */}
+      <div className="flex flex-wrap items-center gap-3">
+        <Button variant="secondary" onClick={handleRun} disabled={disabled} size="lg">
+          {running ? <Loader2 className="size-4 animate-spin mr-2" /> : null} Run
+        </Button>
+        <Button onClick={handleSubmitCode} disabled={disabled} size="lg">
+          {submitting ? <Loader2 className="size-4 animate-spin mr-2" /> : null} Submit code
+        </Button>
+      </div>
 
-      <ResizablePanelGroup
-        orientation="horizontal"
-        className="min-h-[560px] rounded-md border"
-      >
-        <ResizablePanel defaultSize="38" minSize="25" className="flex min-h-0 flex-col">
-          <Tabs value={activeTab} onValueChange={setActiveTab} className="flex h-full min-h-0 flex-col gap-0">
-            <TabsList className="m-2 self-start">
-              <TabsTrigger value="description">Description</TabsTrigger>
-              <TabsTrigger value="testcases">Testcases</TabsTrigger>
-              <TabsTrigger value="result">
-                Result
-                {liveFinal && (
-                  <Badge
-                    variant={liveFinal.status === "PASSED" ? "default" : "secondary"}
-                    className="ml-1.5"
-                  >
-                    {liveFinal.status}
-                  </Badge>
-                )}
-              </TabsTrigger>
-            </TabsList>
+      {/* 5. Execution Results */}
+      <div className="space-y-3 border-t pt-4">
+        <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
+          Execution Results
+          {liveFinal && (
+            <Badge
+              variant={liveFinal.status === "PASSED" ? "default" : "secondary"}
+              className="ml-1.5"
+            >
+              {liveFinal.status}
+            </Badge>
+          )}
+        </h3>
 
-            <TabsContent value="description" className="min-h-0 flex-1 overflow-y-auto px-3 pb-3">
-              <p className="whitespace-pre-wrap text-sm">{cq.question.body}</p>
-            </TabsContent>
-
-            <TabsContent value="testcases" className="min-h-0 flex-1 overflow-y-auto px-3 pb-3">
-              {coding.sampleTestCases.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No sample test cases for this question.</p>
-              ) : (
-                <div className="grid gap-2">
-                  {coding.sampleTestCases.map((tc, i) => (
-                    <div key={tc.id} className="grid gap-1 rounded-md border p-2 text-xs">
-                      <span className="font-medium text-muted-foreground">Sample {i + 1}</span>
-                      <div className="grid gap-1 sm:grid-cols-2">
-                        <div>
-                          <div className="text-muted-foreground">Input</div>
-                          <pre className="overflow-x-auto whitespace-pre-wrap rounded bg-muted/40 p-2">
-                            {tc.input}
-                          </pre>
-                        </div>
-                        <div>
-                          <div className="text-muted-foreground">Expected output</div>
-                          <pre className="overflow-x-auto whitespace-pre-wrap rounded bg-muted/40 p-2">
-                            {tc.expectedOutput}
-                          </pre>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </TabsContent>
-
-            <TabsContent value="result" className="min-h-0 flex-1 overflow-y-auto px-3 pb-3">
-              {!liveFinal && results.length === 0 ? (
-                <p className="text-sm text-muted-foreground">
-                  Run or submit your code to see test results here.
-                </p>
-              ) : (
-                <div className="grid gap-3">
-                  {liveFinal && (
-                    <div className="flex items-center gap-2">
-                      <Badge variant={liveFinal.status === "PASSED" ? "default" : "secondary"}>
-                        {liveFinal.status}
-                        {liveFinal.score != null ? ` · ${liveFinal.score}/${liveFinal.maxScore}` : ""}
-                      </Badge>
-                    </div>
-                  )}
-                  {liveFinal?.compileError && (
-                    <pre className="overflow-x-auto whitespace-pre-wrap rounded-md border bg-muted/40 p-3 text-xs">
-                      {liveFinal.compileError}
-                    </pre>
-                  )}
-                  {sampleResults.map((r, i) => (
-                    <ResultCard
-                      key={r.testCaseId ?? i}
-                      r={r}
-                      expectedOutput={expectedByTestCaseId[r.testCaseId]}
-                    />
-                  ))}
-                  {hiddenResults.length > 0 && <HiddenResultsSummary results={hiddenResults} />}
-                </div>
-              )}
-            </TabsContent>
-          </Tabs>
-        </ResizablePanel>
-
-        <ResizableHandle withHandle />
-
-        <ResizablePanel defaultSize="62" minSize="35" className="flex min-h-0 flex-col">
-          <div className="min-h-0 flex-1">
-            <CodeEditor language={language} value={code} onChange={setCode} readOnly={questionLocked} />
+        {!liveFinal && results.length === 0 ? (
+          <p className="text-xs text-muted-foreground bg-muted/10 border rounded-md p-3">
+            Run or submit your code to see the grading output here.
+          </p>
+        ) : (
+          <div className="grid gap-3">
+            {liveFinal && (
+              <div className="flex items-center gap-2">
+                <Badge variant={liveFinal.status === "PASSED" ? "default" : "secondary"} className="text-xs">
+                  {liveFinal.status}
+                  {liveFinal.score != null ? ` · ${liveFinal.score}/${liveFinal.maxScore}` : ""}
+                </Badge>
+              </div>
+            )}
+            {liveFinal?.compileError && (
+              <div className="space-y-1">
+                <div className="text-xs font-semibold text-destructive">Compilation Error</div>
+                <pre className="overflow-x-auto whitespace-pre-wrap rounded-md border border-destructive/20 bg-destructive/5 p-3 font-mono text-xs text-destructive">
+                  {liveFinal.compileError}
+                </pre>
+              </div>
+            )}
+            {sampleResults.length > 0 && (
+              <div className="space-y-3">
+                <div className="text-xs font-semibold text-muted-foreground">Sample Test Cases</div>
+                {sampleResults.map((r, i) => (
+                  <ResultCard
+                    key={r.testCaseId ?? i}
+                    r={r}
+                    expectedOutput={expectedByTestCaseId[r.testCaseId]}
+                  />
+                ))}
+              </div>
+            )}
+            {hiddenResults.length > 0 && (
+              <div className="space-y-2">
+                <div className="text-xs font-semibold text-muted-foreground">Private Test Cases</div>
+                <HiddenResultsSummary results={hiddenResults} />
+              </div>
+            )}
           </div>
-          <div className="flex flex-wrap items-center gap-2 border-t p-2">
-            <Button variant="secondary" onClick={handleRun} disabled={disabled}>
-              {running ? <Loader2 className="size-4 animate-spin" /> : null} Run
-            </Button>
-            <Button onClick={handleSubmitCode} disabled={disabled}>
-              {submitting ? <Loader2 className="size-4 animate-spin" /> : null} Submit code
-            </Button>
-          </div>
-        </ResizablePanel>
-      </ResizablePanelGroup>
+        )}
+      </div>
     </div>
   );
 }

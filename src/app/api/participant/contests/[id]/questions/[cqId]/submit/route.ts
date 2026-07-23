@@ -14,6 +14,7 @@ import { rateLimit } from "@/lib/rate-limit";
 import { executionQueue } from "@/lib/queue";
 import { env } from "@/lib/env";
 import { AttemptType, AttemptStatus, ParticipantStatus } from "@/generated/prisma/enums";
+import { Prisma } from "@/generated/prisma/client";
 
 export const runtime = "nodejs";
 
@@ -91,7 +92,7 @@ export async function POST(
       language: input.language,
       code: input.code,
       status: AttemptStatus.QUEUED,
-      testCaseResults: undefined,
+      testCaseResults: Prisma.DbNull,
       score: null,
       maxPossibleScore: null,
       totalExecutionTimeMs: null,

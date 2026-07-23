@@ -206,6 +206,27 @@ export function ContestTakingClient({ contestId }: { contestId: string }) {
   const questions = data?.questions ?? [];
   const current = questions[currentIndex];
 
+  const unsubmittedQuestions = questions
+    .map((q, idx) => {
+      if (q.question.type !== "CODING") return null;
+      const a = answers[q.id];
+      const draft = a?.coding?.localCode;
+      const submitted = a?.coding?.submit?.code ?? "";
+      
+      const runCode = a?.coding?.run?.code ?? "";
+      const hasSubmitted = !!submitted.trim();
+      
+      const isDirty = draft !== undefined 
+        ? draft.trim() !== submitted.trim() && (hasSubmitted || draft.trim() !== "")
+        : runCode.trim() !== "" && !hasSubmitted;
+
+      if (isDirty) {
+        return idx + 1;
+      }
+      return null;
+    })
+    .filter((idx): idx is number => idx !== null);
+
   // Mark the newly-focused question visited, regardless of how we got here.
   useEffect(() => {
     if (!current || current.question.type === "CODING") return;
@@ -503,9 +524,29 @@ export function ContestTakingClient({ contestId }: { contestId: string }) {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Submit contest?</AlertDialogTitle>
-            <AlertDialogDescription>
-              You won&apos;t be able to change your answers after submitting. Unanswered
-              questions will score zero.
+            <AlertDialogDescription className="space-y-3" asChild>
+              <div className="space-y-3">
+                <p>
+                  You won&apos;t be able to change your answers after submitting. Unanswered
+                  questions will score zero.
+                </p>
+                {unsubmittedQuestions.length > 0 && (
+                  <div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-800 dark:text-amber-400 space-y-1.5">
+                    <div className="font-semibold flex items-center gap-1.5 text-sm text-amber-800 dark:text-amber-400">
+                      <span>⚠️ Unsubmitted Code Detected</span>
+                    </div>
+                    <p>
+                      You have written or tested code for the following question{unsubmittedQuestions.length === 1 ? "" : "s"} but have <strong>not clicked &quot;Submit code&quot;</strong> to save it for grading:
+                    </p>
+                    <p className="font-semibold">
+                      Question{unsubmittedQuestions.length === 1 ? "" : "s"}: {unsubmittedQuestions.join(", ")}
+                    </p>
+                    <p className="text-[11px] opacity-90">
+                      If you submit the contest now, your answers for these coding questions will not contain your latest code changes.
+                    </p>
+                  </div>
+                )}
+              </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

@@ -14,7 +14,7 @@ export function ThemeToggle() {
 
   if (!mounted) {
     return (
-      <Button variant="ghost" size="icon" aria-label="Toggle theme" disabled>
+      <Button variant="ghost" size="icon" aria-label="Toggle theme" disabled suppressHydrationWarning>
         <Sun className="size-4" />
       </Button>
     );
@@ -28,6 +28,7 @@ export function ThemeToggle() {
       size="icon"
       aria-label={isDark ? "Switch to light mode" : "Switch to dark mode"}
       onClick={() => setTheme(isDark ? "light" : "dark")}
+      suppressHydrationWarning
     >
       {isDark ? <Sun className="size-4" /> : <Moon className="size-4" />}
     </Button>

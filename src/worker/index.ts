@@ -34,7 +34,7 @@ const worker = new Worker<ExecutionJobData>(
         contestQuestion: {
           include: {
             question: {
-              include: { codingConfig: { include: { testCases: true } } },
+              include: { codingConfig: { include: { testCases: { orderBy: { order: "asc" } } } } },
             },
           },
         },
@@ -116,6 +116,7 @@ const worker = new Worker<ExecutionJobData>(
         maxScore: graded.maxScore,
         totalExecutionTimeMs: graded.totalExecutionTimeMs,
         compileError: graded.compileError,
+        results: graded.results.map(toParticipantTestCaseResult),
       }),
     );
 
