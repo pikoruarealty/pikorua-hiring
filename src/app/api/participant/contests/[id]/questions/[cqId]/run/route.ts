@@ -91,7 +91,7 @@ export async function POST(
       language: input.language,
       code: input.code,
       status: AttemptStatus.QUEUED,
-      testCaseResults: undefined,
+      testCaseResults: Prisma.DbNull,
     },
     update: {
       language: input.language,

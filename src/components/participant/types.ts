@@ -66,7 +66,11 @@ export interface AnswerState {
   visited: boolean;
   markedForReview: boolean;
   questionStartedAt?: string | null;
-  coding?: { run: CodingRunState | null; submit: CodingSubmitState | null } | null;
+  coding?: { 
+    run: CodingRunState | null; 
+    submit: CodingSubmitState | null;
+    localCode?: string;
+  } | null;
 }
 
 export interface ContestStateResponse {

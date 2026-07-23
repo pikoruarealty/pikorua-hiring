@@ -34,9 +34,7 @@ const worker = new Worker<ExecutionJobData>(
         contestQuestion: {
           include: {
             question: {
-              include: {
-                codingConfig: { include: { testCases: { orderBy: { order: "asc" } } } },
-              },
+              include: { codingConfig: { include: { testCases: { orderBy: { order: "asc" } } } } },
             },
           },
         },
