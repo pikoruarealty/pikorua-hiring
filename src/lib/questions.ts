@@ -27,18 +27,27 @@ const optionInput = z.object({
   isCorrect: z.boolean().default(false),
 });
 
-const mcqQuestionSchema = z.object({
-  type: z.literal(QuestionType.MCQ),
-  title,
-  body,
-  difficulty,
-  tags,
-  defaultPoints: points,
-  options: z
-    .array(optionInput)
-    .min(2, "MCQ questions need at least 2 options.")
-    .max(20),
-});
+const mcqQuestionSchema = z
+  .object({
+    type: z.literal(QuestionType.MCQ),
+    title,
+    body,
+    difficulty,
+    tags,
+    defaultPoints: points,
+    allowMultipleAnswers: z.boolean().default(true),
+    options: z
+      .array(optionInput)
+      .min(2, "MCQ questions need at least 2 options.")
+      .max(20),
+  })
+  .refine(
+    (q) => q.allowMultipleAnswers || q.options.filter((o) => o.score > 0).length <= 1,
+    {
+      message: "A single-answer question can have at most one option with a positive score.",
+      path: ["options"],
+    },
+  );
 
 const textQuestionSchema = z.object({
   type: z.literal(QuestionType.TEXT),
@@ -199,6 +208,7 @@ export async function createQuestion(
           input.type === QuestionType.CODING
             ? codingTotalScore(input.testCases)
             : input.defaultPoints,
+        allowMultipleAnswers: input.type === QuestionType.MCQ ? input.allowMultipleAnswers : true,
         createdById,
       },
       select: { id: true },
@@ -234,6 +244,7 @@ export async function replaceQuestionContent(
           input.type === QuestionType.CODING
             ? codingTotalScore(input.testCases)
             : input.defaultPoints,
+        allowMultipleAnswers: input.type === QuestionType.MCQ ? input.allowMultipleAnswers : true,
       },
     });
     await createQuestionContent(tx, questionId, input);

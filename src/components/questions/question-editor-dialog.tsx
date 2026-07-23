@@ -62,6 +62,7 @@ export function QuestionEditorDialog({ open, onOpenChange, editing, onSaved }: P
     { text: "", score: 1, order: 0, isCorrect: true },
     { text: "", score: 0, order: 1, isCorrect: false },
   ]);
+  const [allowMultipleAnswers, setAllowMultipleAnswers] = useState(false);
   const [correctAnswer, setCorrectAnswer] = useState("");
 
   const [timeLimitSeconds, setTimeLimitSeconds] = useState(2);
@@ -82,7 +83,10 @@ export function QuestionEditorDialog({ open, onOpenChange, editing, onSaved }: P
       setDifficulty(editing.difficulty ?? "");
       setTags(editing.tags.join(", "));
       setDefaultPoints(editing.defaultPoints);
-      if (editing.type === "MCQ") setOptions(editing.options);
+      if (editing.type === "MCQ") {
+        setOptions(editing.options);
+        setAllowMultipleAnswers(editing.allowMultipleAnswers);
+      }
       if (editing.type === "TEXT")
         setCorrectAnswer(editing.textAnswerConfig?.correctAnswer ?? "");
       if (editing.type === "CODING" && editing.codingConfig) {
@@ -107,6 +111,7 @@ export function QuestionEditorDialog({ open, onOpenChange, editing, onSaved }: P
         { text: "", score: 1, order: 0, isCorrect: true },
         { text: "", score: 0, order: 1, isCorrect: false },
       ]);
+      setAllowMultipleAnswers(false);
       setCorrectAnswer("");
       setTimeLimitSeconds(2);
       setMemoryLimitMb(256);
@@ -137,7 +142,7 @@ export function QuestionEditorDialog({ open, onOpenChange, editing, onSaved }: P
 
     let payload: Record<string, unknown>;
     if (type === "MCQ") {
-      payload = { type, ...base, defaultPoints: Number(defaultPoints), options };
+      payload = { type, ...base, defaultPoints: Number(defaultPoints), allowMultipleAnswers, options };
     } else if (type === "TEXT") {
       payload = { type, ...base, defaultPoints: Number(defaultPoints), correctAnswer };
     } else {
@@ -294,7 +299,14 @@ export function QuestionEditorDialog({ open, onOpenChange, editing, onSaved }: P
               </TabsContent>
 
               <TabsContent value="content">
-                {type === "MCQ" && <OptionsEditor options={options} onChange={setOptions} />}
+                {type === "MCQ" && (
+                  <OptionsEditor
+                    options={options}
+                    onChange={setOptions}
+                    allowMultipleAnswers={allowMultipleAnswers}
+                    onAllowMultipleAnswersChange={setAllowMultipleAnswers}
+                  />
+                )}
                 {type === "TEXT" && (
                   <div className="grid gap-1.5">
                     <Label htmlFor="q-answer">
@@ -346,11 +358,25 @@ export function QuestionEditorDialog({ open, onOpenChange, editing, onSaved }: P
 function OptionsEditor({
   options,
   onChange,
+  allowMultipleAnswers,
+  onAllowMultipleAnswersChange,
 }: {
   options: OptionRow[];
   onChange: (o: OptionRow[]) => void;
+  allowMultipleAnswers: boolean;
+  onAllowMultipleAnswersChange: (v: boolean) => void;
 }) {
   function update(i: number, patch: Partial<OptionRow>) {
+    if (!allowMultipleAnswers && patch.isCorrect === true) {
+      // Single-answer mode behaves like a radio group: marking one option
+      // correct clears every other option's correct flag and score.
+      onChange(
+        options.map((o, idx) =>
+          idx === i ? { ...o, ...patch } : { ...o, isCorrect: false, score: 0 },
+        ),
+      );
+      return;
+    }
     onChange(options.map((o, idx) => (idx === i ? { ...o, ...patch } : o)));
   }
   function add() {
@@ -372,6 +398,27 @@ function OptionsEditor({
         <Button type="button" variant="outline" size="sm" onClick={add}>
           <Plus className="size-3.5" /> Add option
         </Button>
+      </div>
+      <div className="grid gap-1.5">
+        <Label className="text-xs text-muted-foreground">Answer selection</Label>
+        <div className="flex gap-2">
+          <Button
+            type="button"
+            size="sm"
+            variant={!allowMultipleAnswers ? "default" : "outline"}
+            onClick={() => onAllowMultipleAnswersChange(false)}
+          >
+            Single answer (radio)
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant={allowMultipleAnswers ? "default" : "outline"}
+            onClick={() => onAllowMultipleAnswersChange(true)}
+          >
+            Multiple answers (checkbox)
+          </Button>
+        </div>
       </div>
       <div className="grid gap-2">
         {options.map((o, i) => (
@@ -475,11 +522,11 @@ function CodingEditor({
             />
           </div>
           <div className="grid gap-1.5">
-            <Label className="text-xs text-muted-foreground">Hard lock (s)</Label>
+            <Label className="text-xs text-muted-foreground">Question time limit (s)</Label>
             <Input
               type="number"
               min={30}
-              placeholder="Contest default"
+              placeholder="No limit"
               value={hardLock}
               onChange={(e) => setHardLock(e.target.value)}
             />

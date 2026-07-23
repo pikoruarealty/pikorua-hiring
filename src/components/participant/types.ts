@@ -22,6 +22,7 @@ export interface ParticipantQuestion {
     type: "MCQ" | "TEXT" | "CODING";
     title: string;
     body: string;
+    allowMultipleAnswers: boolean;
     options: { id: string; text: string }[];
     coding: {
       timeLimitSeconds: number;
@@ -79,8 +80,13 @@ export interface ContestStateResponse {
     endAt: string;
     durationMinutes: number;
     phase: ContestPhase;
+    resultsVisibleToParticipants: boolean;
   };
-  participant: { status: string; contestStartedAt: string | null } | null;
+  participant: {
+    status: string;
+    contestStartedAt: string | null;
+    totalScore?: number | null;
+  } | null;
   questions: ParticipantQuestion[] | null;
   answers: Record<string, AnswerState> | null;
   remainingSeconds: number | null;

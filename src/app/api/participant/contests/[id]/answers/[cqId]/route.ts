@@ -67,6 +67,7 @@ export async function PATCH(
         select: {
           type: true,
           defaultPoints: true,
+          allowMultipleAnswers: true,
           options: { select: { id: true, score: true } },
           textAnswerConfig: { select: { correctAnswer: true } },
         },
@@ -84,9 +85,12 @@ export async function PATCH(
   }
 
   const validOptionIds = new Set(contestQuestion.question.options.map((o) => o.id));
-  const selectedOptionIds = (input.selectedOptionIds ?? []).filter((id) =>
-    validOptionIds.has(id),
-  );
+  let selectedOptionIds = (input.selectedOptionIds ?? []).filter((id) => validOptionIds.has(id));
+  // Single-answer questions can never persist more than one selection,
+  // regardless of what the client sends — keep only the last one selected.
+  if (!contestQuestion.question.allowMultipleAnswers && selectedOptionIds.length > 1) {
+    selectedOptionIds = selectedOptionIds.slice(-1);
+  }
   const textAnswer = input.textAnswer ?? null;
   const points = Number(contestQuestion.pointsOverride ?? contestQuestion.question.defaultPoints);
   const score = computeAnswerScore(

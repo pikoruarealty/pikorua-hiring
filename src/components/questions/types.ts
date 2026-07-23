@@ -54,6 +54,7 @@ export interface QuestionDetail {
   tags: string[];
   defaultPoints: string;
   isArchived: boolean;
+  allowMultipleAnswers: boolean;
   options: OptionRow[];
   textAnswerConfig: { correctAnswer: string } | null;
   codingConfig:

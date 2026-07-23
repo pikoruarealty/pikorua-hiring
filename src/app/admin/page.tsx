@@ -18,9 +18,19 @@ export default async function AdminDashboard() {
   ]);
 
   const stats = [
-    { label: "Participants", value: participantCount, hint: "Registered candidate accounts" },
-    { label: "Question bank", value: questionCount, hint: "Reusable questions" },
-    { label: "Contests", value: contestCount, hint: "All statuses" },
+    {
+      label: "Participants",
+      value: participantCount,
+      hint: "Registered candidate accounts",
+      href: "/admin/participants",
+    },
+    {
+      label: "Question bank",
+      value: questionCount,
+      hint: "Reusable questions",
+      href: "/admin/questions",
+    },
+    { label: "Contests", value: contestCount, hint: "All statuses", href: "/admin/contests" },
   ];
 
   return (
@@ -35,15 +45,17 @@ export default async function AdminDashboard() {
 
       <div className="grid gap-4 sm:grid-cols-3">
         {stats.map((s) => (
-          <Card key={s.label}>
-            <CardHeader className="pb-2">
-              <CardDescription>{s.label}</CardDescription>
-              <CardTitle className="text-3xl tabular-nums">{s.value}</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-xs text-muted-foreground">{s.hint}</p>
-            </CardContent>
-          </Card>
+          <Link key={s.label} href={s.href} className="block">
+            <Card className="transition-colors hover:bg-muted/40">
+              <CardHeader className="pb-2">
+                <CardDescription>{s.label}</CardDescription>
+                <CardTitle className="text-3xl tabular-nums">{s.value}</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-xs text-muted-foreground">{s.hint}</p>
+              </CardContent>
+            </Card>
+          </Link>
         ))}
       </div>
 

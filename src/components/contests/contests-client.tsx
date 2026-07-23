@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Plus, Search, Loader2, ChevronLeft, ChevronRight } from "lucide-react";
+import { Plus, Search, Loader2, ChevronLeft, ChevronRight, MoreHorizontal, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -18,6 +18,22 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -25,7 +41,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { CreateContestDialog } from "./create-contest-dialog";
-import type { ContestListResponse, ContestStatus } from "./types";
+import type { ContestListItem, ContestListResponse, ContestStatus } from "./types";
 
 const STATUS_VARIANT: Record<ContestStatus, "secondary" | "outline" | "default"> = {
   DRAFT: "outline",
@@ -44,6 +60,7 @@ export function ContestsClient() {
   const [status, setStatus] = useState("all");
   const [page, setPage] = useState(1);
   const [createOpen, setCreateOpen] = useState(false);
+  const [deleting, setDeleting] = useState<ContestListItem | null>(null);
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -75,6 +92,24 @@ export function ContestsClient() {
   useEffect(() => {
     load();
   }, [load]);
+
+  async function confirmDelete() {
+    if (!deleting) return;
+    try {
+      const res = await apiFetch(`/api/admin/contests/${deleting.id}`, { method: "DELETE" });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast.error(body.error ?? "Delete failed");
+        return;
+      }
+      toast.success("Contest deleted");
+      load();
+    } catch {
+      toast.error("Network error");
+    } finally {
+      setDeleting(null);
+    }
+  }
 
   const contests = data?.contests ?? [];
 
@@ -119,18 +154,19 @@ export function ContestsClient() {
               <TableHead>Start (IST)</TableHead>
               <TableHead className="text-right">Questions</TableHead>
               <TableHead className="text-right">Roster</TableHead>
+              <TableHead className="w-10" />
             </TableRow>
           </TableHeader>
           <TableBody>
             {loading ? (
               <TableRow>
-                <TableCell colSpan={6} className="h-32 text-center text-muted-foreground">
+                <TableCell colSpan={7} className="h-32 text-center text-muted-foreground">
                   <Loader2 className="mx-auto size-5 animate-spin" />
                 </TableCell>
               </TableRow>
             ) : contests.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={6} className="h-32 text-center text-muted-foreground">
+                <TableCell colSpan={7} className="h-32 text-center text-muted-foreground">
                   No contests yet. Create one to get started.
                 </TableCell>
               </TableRow>
@@ -155,6 +191,24 @@ export function ContestsClient() {
                   </TableCell>
                   <TableCell className="text-right tabular-nums">{c.questionCount}</TableCell>
                   <TableCell className="text-right tabular-nums">{c.participantCount}</TableCell>
+                  <TableCell onClick={(e) => e.stopPropagation()}>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="icon" aria-label="Row actions">
+                          <MoreHorizontal className="size-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem
+                          variant="destructive"
+                          disabled={c.status !== "DRAFT"}
+                          onClick={() => setDeleting(c)}
+                        >
+                          <Trash2 className="size-4" /> Delete
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </TableCell>
                 </TableRow>
               ))
             )}
@@ -192,6 +246,24 @@ export function ContestsClient() {
         onOpenChange={setCreateOpen}
         onCreated={(id) => router.push(`/admin/contests/${id}`)}
       />
+
+      <AlertDialog open={deleting !== null} onOpenChange={(o) => !o && setDeleting(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete contest?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This permanently deletes <span className="font-medium">{deleting?.title}</span>. Only
+              draft contests can be deleted — unpublish a contest first if you need to remove it.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmDelete} className="bg-destructive text-white hover:bg-destructive/90">
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

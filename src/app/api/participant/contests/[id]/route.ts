@@ -54,6 +54,7 @@ export async function GET(
     endAt: contest.endAt,
     durationMinutes: contest.durationMinutes,
     phase: contestPhase(contest, now),
+    resultsVisibleToParticipants: contest.resultsVisibleToParticipants,
   };
 
   if (!initialParticipant || !initialParticipant.contestStartedAt) {
@@ -81,6 +82,7 @@ export async function GET(
           title: true,
           body: true,
           defaultPoints: true,
+          allowMultipleAnswers: true,
           options: { select: { id: true, text: true, order: true } },
           codingConfig: {
             select: {
@@ -185,11 +187,20 @@ export async function GET(
     submitAttempts.map((a) => [a.contestQuestionId, a.questionStartedAt]),
   );
 
+  const isFinalized =
+    participant.status === ParticipantStatus.SUBMITTED ||
+    participant.status === ParticipantStatus.AUTO_SUBMITTED ||
+    participant.status === ParticipantStatus.LOCKED_OUT;
+
   return NextResponse.json({
     contest: base,
     participant: {
       status: participant.status,
       contestStartedAt: participant.contestStartedAt,
+      totalScore:
+        isFinalized && contest.resultsVisibleToParticipants
+          ? Number(participant.totalScore)
+          : null,
     },
     questions: contestQuestions.map((cq) =>
       toParticipantQuestion(cq, questionStartedByQuestion[cq.id] ?? null),

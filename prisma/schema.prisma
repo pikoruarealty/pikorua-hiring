@@ -212,6 +212,10 @@ model Question {
   defaultPoints Decimal            @default(0) @db.Decimal(10, 2)
   difficulty   QuestionDifficulty?
   tags         String[]            @default([])
+  // MCQ only: true renders checkboxes (partial-credit, multiple selectable
+  // options per the original scoring model); false renders radio buttons
+  // (single selectable option). Ignored for TEXT/CODING.
+  allowMultipleAnswers Boolean     @default(true)
   // Soft delete: hard delete would orphan historical Attempt rows.
   isArchived   Boolean             @default(false)
 

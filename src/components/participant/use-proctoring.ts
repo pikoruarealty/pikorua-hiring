@@ -8,6 +8,7 @@ export interface ProctoringOutcome {
   action: "NONE" | "WARNED" | "AUTO_SUBMITTED";
   cumulativeCount: number | null;
   status: string;
+  eventType: string;
 }
 
 // fullscreenchange and blur/visibilitychange routinely fire together for the
@@ -48,17 +49,27 @@ export function useProctoring(
           }),
         });
         if (!res.ok) return;
-        const body = (await res.json()) as ProctoringOutcome;
-        onOutcomeRef.current(body);
+        const body = (await res.json()) as Omit<ProctoringOutcome, "eventType">;
+        onOutcomeRef.current({ ...body, eventType });
       } catch {
         // Best-effort — a dropped report just means one fewer data point.
       }
+    }
+
+    function reenterFullscreen() {
+      // Best-effort re-enforcement of the fullscreen rule right after a
+      // violation. Some browsers only grant this if it's still close enough
+      // to a user gesture (e.g. the Escape keypress that caused the exit);
+      // when that fails silently, the popup shown by the caller offers an
+      // explicit "Re-enter fullscreen" button backed by a real click gesture.
+      document.documentElement.requestFullscreen?.().catch(() => {});
     }
 
     function onFullscreenChange() {
       if (document.fullscreenElement) return;
       suppressCompanionUntil = Date.now() + COMPANION_SUPPRESS_MS;
       report(ProctoringEventType.FULLSCREEN_EXIT);
+      reenterFullscreen();
     }
 
     function onVisibilityChange() {

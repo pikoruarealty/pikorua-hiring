@@ -7,6 +7,7 @@ import { apiFetch } from "@/lib/client/api";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Input } from "@/components/ui/input";
 import {
   AlertDialog,
@@ -25,6 +26,17 @@ import type { AnswerState, ContestStateResponse } from "./types";
 
 const RESYNC_MS = 20_000;
 const TEXT_DEBOUNCE_MS = 600;
+
+const PROCTORING_EVENT_LABELS: Record<string, string> = {
+  FULLSCREEN_EXIT: "Exiting fullscreen",
+  VISIBILITY_HIDDEN: "Switching away from this tab/window",
+  TAB_BLUR: "Switching away from this tab/window",
+  DEVTOOLS_ATTEMPT: "Attempting to open developer tools",
+  RIGHT_CLICK: "Right-clicking",
+  COPY_PASTE: "Copy/paste",
+  PRINT_ATTEMPT: "Attempting to print/save the page",
+  MULTI_MONITOR_DETECTED: "A multi-monitor setup",
+};
 
 function defaultAnswer(): AnswerState {
   return { selectedOptionIds: [], textAnswer: null, visited: false, markedForReview: false };
@@ -55,10 +67,14 @@ export function ContestTakingClient({ contestId }: { contestId: string }) {
   const [confirmSubmitOpen, setConfirmSubmitOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [finalStatus, setFinalStatus] = useState<string | null>(null);
+  const [finalScore, setFinalScore] = useState<number | null>(null);
 
   const debounceRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const submittingRef = useRef(false);
   const [proctoringWarning, setProctoringWarning] = useState<string | null>(null);
+  const [violationPopup, setViolationPopup] = useState<{ message: string; isFullscreen: boolean } | null>(
+    null,
+  );
 
   const load = useCallback(async () => {
     const res = await apiFetch(`/api/participant/contests/${contestId}`);
@@ -76,6 +92,7 @@ export function ContestTakingClient({ contestId }: { contestId: string }) {
       body.participant?.status === "LOCKED_OUT"
     ) {
       setFinalStatus(body.participant.status);
+      setFinalScore(body.participant.totalScore ?? null);
     }
     return body;
   }, [contestId]);
@@ -112,6 +129,7 @@ export function ContestTakingClient({ contestId }: { contestId: string }) {
           return;
         }
         setFinalStatus(body.status);
+        setFinalScore(body.totalScore ?? null);
         toast.success(auto ? "Time's up — contest auto-submitted" : "Contest submitted");
       } catch {
         toast.error("Network error while submitting");
@@ -137,12 +155,17 @@ export function ContestTakingClient({ contestId }: { contestId: string }) {
   const proctoringActive = !!data?.participant?.contestStartedAt && !finalStatus;
   useProctoring(contestId, proctoringActive, (outcome) => {
     if (outcome.action === "WARNED") {
+      const reason = PROCTORING_EVENT_LABELS[outcome.eventType] ?? "A proctoring rule violation";
       setProctoringWarning(
         "Warning: leaving fullscreen, switching tabs, or attempting devtools/copy/print is being monitored. One more violation will end your contest.",
       );
-      toast.error("Proctoring warning — one more violation ends your contest", { duration: 8000 });
+      setViolationPopup({
+        message: `${reason} was detected and logged. One more violation will end your contest immediately.`,
+        isFullscreen: outcome.eventType === "FULLSCREEN_EXIT",
+      });
     } else if (outcome.action === "AUTO_SUBMITTED") {
       setFinalStatus(outcome.status);
+      setViolationPopup(null);
       toast.error("Contest ended — repeated proctoring violation");
     }
   });
@@ -234,12 +257,21 @@ export function ContestTakingClient({ contestId }: { contestId: string }) {
                 : "Submitted"}
           </CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="grid gap-3">
           <p className="text-sm text-muted-foreground">
             {finalStatus === "LOCKED_OUT"
               ? "Your contest was ended after repeated proctoring violations (leaving fullscreen, switching tabs, or attempting devtools/copy/print). Your responses up to that point have been recorded."
-              : `Your responses for "${data.contest.title}" have been recorded. Results will be shared by the admin.`}
+              : `Your responses for "${data.contest.title}" have been recorded.`}
           </p>
+          {finalScore !== null ? (
+            <p className="text-2xl font-semibold tabular-nums">
+              Score: {finalScore}
+            </p>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              Results will be shared by the admin.
+            </p>
+          )}
         </CardContent>
       </Card>
     );
@@ -332,7 +364,7 @@ export function ContestTakingClient({ contestId }: { contestId: string }) {
               <p className="whitespace-pre-wrap text-sm">{current.question.body}</p>
             )}
 
-            {current.question.type === "MCQ" && (
+            {current.question.type === "MCQ" && current.question.allowMultipleAnswers && (
               <div className="grid gap-2">
                 {current.question.options.map((o) => (
                   <label
@@ -354,6 +386,23 @@ export function ContestTakingClient({ contestId }: { contestId: string }) {
               </div>
             )}
 
+            {current.question.type === "MCQ" && !current.question.allowMultipleAnswers && (
+              <RadioGroup
+                value={a.selectedOptionIds[0] ?? ""}
+                onValueChange={(value) => persist(current.id, { selectedOptionIds: [value] })}
+              >
+                {current.question.options.map((o) => (
+                  <label
+                    key={o.id}
+                    className="flex items-center gap-2 rounded-md border p-2.5 text-sm"
+                  >
+                    <RadioGroupItem value={o.id} />
+                    {o.text}
+                  </label>
+                ))}
+              </RadioGroup>
+            )}
+
             {current.question.type === "TEXT" && (
               <Input
                 value={a.textAnswer ?? ""}
@@ -364,6 +413,7 @@ export function ContestTakingClient({ contestId }: { contestId: string }) {
 
             {current.question.type === "CODING" && (
               <CodingQuestionPanel
+                key={current.id}
                 contestId={contestId}
                 cq={current}
                 answer={a}
@@ -424,6 +474,30 @@ export function ContestTakingClient({ contestId }: { contestId: string }) {
           />
         </CardContent>
       </Card>
+
+      <AlertDialog open={!!violationPopup} onOpenChange={(open) => !open && setViolationPopup(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Proctoring violation detected</AlertDialogTitle>
+            <AlertDialogDescription>{violationPopup?.message}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogAction
+              onClick={() => {
+                // A real click gesture, so this reliably re-enters fullscreen
+                // even if the automatic re-request right after the violation
+                // was denied by the browser for lacking one.
+                if (violationPopup?.isFullscreen) {
+                  document.documentElement.requestFullscreen?.().catch(() => {});
+                }
+                setViolationPopup(null);
+              }}
+            >
+              {violationPopup?.isFullscreen ? "Re-enter fullscreen & continue" : "I understand"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog open={confirmSubmitOpen} onOpenChange={setConfirmSubmitOpen}>
         <AlertDialogContent>

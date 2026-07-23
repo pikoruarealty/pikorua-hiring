@@ -216,6 +216,7 @@ export function toParticipantQuestion(
       title: string;
       body: string;
       defaultPoints: Prisma.Decimal;
+      allowMultipleAnswers: boolean;
       options: { id: string; text: string; order: number }[];
       codingConfig: {
         timeLimitSeconds: number;
@@ -246,6 +247,7 @@ export function toParticipantQuestion(
       type: cq.question.type,
       title: cq.question.title,
       body: cq.question.body,
+      allowMultipleAnswers: cq.question.allowMultipleAnswers,
       options: cq.question.options
         .slice()
         .sort((a, b) => a.order - b.order)
