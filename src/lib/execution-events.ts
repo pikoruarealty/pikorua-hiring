@@ -15,6 +15,7 @@ export type ExecutionEvent =
       maxScore: number;
       totalExecutionTimeMs: number;
       compileError: string | null;
+      results?: ParticipantTestCaseResult[];
     };
 
 /** Hidden test cases never reveal actual output/error to the participant, only pass/fail. */

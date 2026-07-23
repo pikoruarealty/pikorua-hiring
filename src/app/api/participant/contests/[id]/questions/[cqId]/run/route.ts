@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
+import { Prisma } from "@/generated/prisma/client";
 import { requireParticipant, requireCsrf } from "@/lib/auth/guards";
 import { loadForParticipant, ensureNotExpired } from "@/lib/participant-contests";
 import {
@@ -96,7 +97,7 @@ export async function POST(
       language: input.language,
       code: input.code,
       status: AttemptStatus.QUEUED,
-      testCaseResults: undefined,
+      testCaseResults: Prisma.DbNull,
       score: null,
       maxPossibleScore: null,
       totalExecutionTimeMs: null,

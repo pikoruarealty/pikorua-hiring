@@ -34,7 +34,9 @@ const worker = new Worker<ExecutionJobData>(
         contestQuestion: {
           include: {
             question: {
-              include: { codingConfig: { include: { testCases: true } } },
+              include: {
+                codingConfig: { include: { testCases: { orderBy: { order: "asc" } } } },
+              },
             },
           },
         },
@@ -116,6 +118,10 @@ const worker = new Worker<ExecutionJobData>(
         maxScore: graded.maxScore,
         totalExecutionTimeMs: graded.totalExecutionTimeMs,
         compileError: graded.compileError,
+        // Included so a client that subscribes late (missing earlier
+        // "test-result" events to the race between job start and SSE
+        // handshake) still ends up with the complete, correctly-ordered set.
+        results: graded.results.map(toParticipantTestCaseResult),
       }),
     );
 

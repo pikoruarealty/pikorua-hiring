@@ -209,12 +209,10 @@ export function CodingQuestionPanel({
         setLiveResults((prev) => [...(prev ?? []), data.result]);
       } else if (data.type === "final") {
         setLiveFinal({ status: data.status, score: data.score, maxScore: data.maxScore, compileError: data.compileError });
-        // The worker's own "final" event never includes `results` (test cases
-        // stream incrementally via "test-result" events instead); only the
-        // "already terminal at subscribe time" server-side final message
-        // populates it. Only overwrite when present, so we don't clobber the
-        // results already accumulated via "test-result" events with a stale
-        // closure value.
+        // The final event always carries the full, correctly-ordered results
+        // (from the worker directly, or from the DB when the client
+        // subscribed after the job had already finished) — always use it
+        // over whatever partial set was accumulated via "test-result" events.
         if (data.results) setLiveResults(data.results);
         setActiveTab("result");
         if (kind === "run") setRunning(false);
