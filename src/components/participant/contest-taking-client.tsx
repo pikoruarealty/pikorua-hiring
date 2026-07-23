@@ -377,7 +377,7 @@ export function ContestTakingClient({ contestId }: { contestId: string }) {
           <CardHeader>
             <CardTitle className="text-base">
               Question {currentIndex + 1} of {questions.length}
-              {current.sectionLabel ? ` · ${current.sectionLabel}` : ""} · {current.points} pts
+              {current.sectionLabel ? ` · ${current.sectionLabel}` : ""}
             </CardTitle>
           </CardHeader>
           <CardContent className="grid gap-4">

@@ -158,8 +158,6 @@ export function CodingQuestionPanel({
   const [liveResults, setLiveResults] = useState<TestCaseResultView[] | null>(null);
   const [liveFinal, setLiveFinal] = useState<{
     status: string;
-    score?: number;
-    maxScore?: number;
     compileError?: string | null;
   } | null>(null);
   const [remainingLock, setRemainingLock] = useState<number | null>(null);
@@ -220,7 +218,7 @@ export function CodingQuestionPanel({
       if (data.type === "test-result") {
         setLiveResults((prev) => [...(prev ?? []), data.result]);
       } else if (data.type === "final") {
-        setLiveFinal({ status: data.status, score: data.score, maxScore: data.maxScore, compileError: data.compileError });
+        setLiveFinal({ status: data.status, compileError: data.compileError });
         // The final event always carries the full, correctly-ordered results
         // (from the worker directly, or from the DB when the client
         // subscribed after the job had already finished) — always use it
@@ -456,14 +454,6 @@ export function CodingQuestionPanel({
           </p>
         ) : (
           <div className="grid gap-3">
-            {liveFinal && (
-              <div className="flex items-center gap-2">
-                <Badge variant={liveFinal.status === "PASSED" ? "default" : "secondary"} className="text-xs">
-                  {liveFinal.status}
-                  {liveFinal.score != null ? ` · ${liveFinal.score}/${liveFinal.maxScore}` : ""}
-                </Badge>
-              </div>
-            )}
             {liveFinal?.compileError && (
               <div className="space-y-1">
                 <div className="text-xs font-semibold text-destructive">Compilation Error</div>
